@@ -29,6 +29,7 @@ export default function App() {
     type: 'success' | 'error';
     message: string;
   } | null>(null);
+  const lastRefreshRef = useRef<number>(0);
 
   // Auto-dismiss order alert after 8 seconds
   useEffect(() => {
@@ -130,9 +131,13 @@ export default function App() {
             setActiveSignal(msg.signals[0]);
           }
 
-          // Refresh portfolio and positions periodically
-          api.getPortfolio().then(setPortfolio).catch(() => {});
-          api.getPositions().then(setPositions).catch(() => {});
+          // Refresh portfolio and positions periodically (throttled to max once every 2.5s)
+          const nowTime = Date.now();
+          if (nowTime - lastRefreshRef.current > 2500) {
+            lastRefreshRef.current = nowTime;
+            api.getPortfolio().then(setPortfolio).catch(() => {});
+            api.getPositions().then(setPositions).catch(() => {});
+          }
         }
       } catch (err) {
         console.error('WebSocket parse error:', err);
