@@ -63,9 +63,14 @@ export const AIAnalysisCard: React.FC<Props> = ({
     ? Number(((analysis.entry_zone.min + analysis.entry_zone.max) / 2).toFixed(2))
     : 0;
 
-  // 0.5% risk budget position sizing
+  // Calibrate position sizing with max ₹5,000 investment limit and ₹10,000 capital risk budget
+  const maxInvestment = 5000;
   const riskPerShare = Math.max(0.1, Math.abs(entryPrice - analysis.stop_loss));
-  const qty = Math.max(1, Math.floor(500 / riskPerShare));
+  const maxQtyByCost = entryPrice > 0 ? Math.max(1, Math.floor(maxInvestment / entryPrice)) : 1;
+  const riskBudget = 150; // 1.5% of ₹10,000 account capital
+  const qtyByRisk = Math.max(1, Math.floor(riskBudget / riskPerShare));
+  const qty = Math.min(qtyByRisk, maxQtyByCost);
+  const totalInvestment = (qty * entryPrice).toFixed(2);
   const maxRiskRupees = (qty * riskPerShare).toFixed(2);
   const targetProfitRupees = (qty * Math.abs(analysis.target - entryPrice)).toFixed(2);
 
@@ -158,19 +163,19 @@ export const AIAnalysisCard: React.FC<Props> = ({
           </div>
           <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
             <span className="text-slate-400">Stop Loss:</span>
-            <div className="font-semibold text-rose-400 mt-0.5">₹{analysis.stop_loss}</div>
+            <div className="font-semibold text-rose-400 mt-0.5">₹{analysis.stop_loss} (-₹{maxRiskRupees})</div>
           </div>
           <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
             <span className="text-slate-400">Target:</span>
-            <div className="font-semibold text-emerald-400 mt-0.5">₹{analysis.target}</div>
+            <div className="font-semibold text-emerald-400 mt-0.5">₹{analysis.target} (+₹{targetProfitRupees})</div>
           </div>
           <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
-            <span className="text-slate-400">Sizing & R:R:</span>
+            <span className="text-slate-400">Allocation:</span>
             <div
               className="font-semibold text-yellow-400 mt-0.5 truncate"
-              title={`₹${maxRiskRupees} risk / +₹${targetProfitRupees} reward (${qty} shares)`}
+              title={`Invest: ₹${totalInvestment} (Risk: ₹${maxRiskRupees})`}
             >
-              {qty} sh • +₹{targetProfitRupees}
+              ₹{totalInvestment} (Risk: ₹{maxRiskRupees})
             </div>
           </div>
         </div>
@@ -254,7 +259,7 @@ export const AIAnalysisCard: React.FC<Props> = ({
               <span>
                 {executing
                   ? 'EXECUTING AI SETUP...'
-                  : `⚡ EXECUTE AI SETUP (${analysis.signal} ${qty} SHARES)`}
+                  : `⚡ EXECUTE AI SETUP (${analysis.signal} ${qty} SHARES · ₹${totalInvestment})`}
               </span>
             </button>
           </div>

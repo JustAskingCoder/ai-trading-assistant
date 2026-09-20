@@ -17,8 +17,8 @@ class PaperBroker:
         portfolio = db.query(Portfolio).first()
         if not portfolio:
             portfolio = Portfolio(
-                capital=100000.0,
-                available_cash=100000.0,
+                capital=settings.INITIAL_CAPITAL,
+                available_cash=settings.INITIAL_CAPITAL,
                 invested_amount=0.0,
                 realized_pnl=0.0,
                 unrealized_pnl=0.0,
@@ -48,7 +48,7 @@ class PaperBroker:
             db.query(Position).delete()
 
             if risk_manager.kill_switch_active:
-                risk_manager.deactivate_kill_switch()
+                risk_manager.deactivate_kill_switch(db_session=db)
 
             db.commit()
             db.refresh(portfolio)

@@ -18,9 +18,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "sqlite:///./database/trading.db"
 
     # Risk Management Defaults
-    INITIAL_CAPITAL: float = 100000.0
-    RISK_PER_TRADE: float = 0.005  # 0.5% max risk per trade
-    MAX_DAILY_LOSS: float = 0.02   # 2% max daily loss
+    INITIAL_CAPITAL: float = 10000.0
+    MAX_INVESTMENT_PER_TRADE: float = 5000.0
+    RISK_PER_TRADE: float = 0.015  # 1.5% max risk per trade
+    MAX_DAILY_LOSS: float = 0.03   # 3% max daily loss
     MAX_OPEN_POSITIONS: int = 3
     MIN_RISK_REWARD: float = 1.5
     MIN_AI_CONFIDENCE: float = 0.75

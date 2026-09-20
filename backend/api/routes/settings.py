@@ -9,6 +9,7 @@ router = APIRouter(prefix="/api", tags=["Settings"])
 
 class SettingsUpdate(BaseModel):
     initial_capital: Optional[float] = None
+    max_investment_per_trade: Optional[float] = None
     risk_per_trade: Optional[float] = None
     max_daily_loss: Optional[float] = None
     max_open_positions: Optional[int] = None
@@ -23,6 +24,7 @@ def get_settings():
     return {
         "trading_mode": settings.TRADING_MODE,
         "initial_capital": settings.INITIAL_CAPITAL,
+        "max_investment_per_trade": getattr(settings, "MAX_INVESTMENT_PER_TRADE", 5000.0),
         "risk_per_trade": settings.RISK_PER_TRADE,
         "max_daily_loss": settings.MAX_DAILY_LOSS,
         "max_open_positions": settings.MAX_OPEN_POSITIONS,
@@ -39,6 +41,8 @@ def get_settings():
 def update_settings(payload: SettingsUpdate):
     if payload.initial_capital is not None:
         settings.INITIAL_CAPITAL = payload.initial_capital
+    if payload.max_investment_per_trade is not None:
+        settings.MAX_INVESTMENT_PER_TRADE = payload.max_investment_per_trade
     if payload.risk_per_trade is not None:
         settings.RISK_PER_TRADE = payload.risk_per_trade
     if payload.max_daily_loss is not None:

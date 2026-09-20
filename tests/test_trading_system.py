@@ -82,7 +82,7 @@ def test_strategy_evaluation(sample_df):
 
 def test_risk_manager_rules():
     rm = RiskManager()
-    dummy_portfolio = Portfolio(capital=100000.0, available_cash=100000.0, daily_pnl=0.0)
+    dummy_portfolio = Portfolio(capital=10000.0, available_cash=10000.0, daily_pnl=0.0)
 
     # 1. Valid BUY Order
     approved, qty, reason = rm.evaluate_order(
@@ -96,8 +96,10 @@ def test_risk_manager_rules():
     )
     assert approved is True
     assert qty > 0
-    # Risk = 20 * qty <= 500
-    assert qty * 20.0 <= 500.0
+    # Risk budget = 10000 * 0.015 = 150
+    assert qty * 20.0 <= 150.0
+    # Max investment cap = 5000
+    assert qty * 1000.0 <= 5000.0
 
     # 2. Invalid Stop Loss (Stop above entry for BUY)
     app_inv, _, _ = rm.evaluate_order(
@@ -170,7 +172,7 @@ def test_ai_response_validation():
 
 def test_backtest_execution(sample_df):
     strat = MomentumStrategy()
-    res = run_backtest(sample_df, strat, initial_capital=100000.0)
+    res = run_backtest(sample_df, strat, initial_capital=10000.0)
     assert "total_trades" in res
     assert "win_rate" in res
     assert "equity_curve" in res
@@ -191,8 +193,8 @@ def test_paper_broker_reset_portfolio():
 
         # Perform reset
         pf = paper_broker.reset_portfolio(db)
-        assert pf.capital == 100000.0
-        assert pf.available_cash == 100000.0
+        assert pf.capital == 10000.0
+        assert pf.available_cash == 10000.0
         assert pf.invested_amount == 0.0
         assert pf.realized_pnl == 0.0
         assert pf.unrealized_pnl == 0.0
@@ -211,8 +213,8 @@ def test_portfolio_reset_api():
     response = client.post("/api/portfolio/reset")
     assert response.status_code == 200
     data = response.json()
-    assert data["capital"] == 100000.0
-    assert data["available_cash"] == 100000.0
+    assert data["capital"] == 10000.0
+    assert data["available_cash"] == 10000.0
     assert data["invested_amount"] == 0.0
     assert data["open_positions"] == 0
 
@@ -383,6 +385,84 @@ async def test_market_simulator_auto_exit_broadcast(sample_df):
         simulator.unsubscribe(q)
         paper_broker.reset_portfolio(db)
         db.close()
+
+
+def test_investment_cap_and_risk_limits():
+    """Verify ₹5,000 investment cap per trade and risk budget rules."""
+    rm = RiskManager()
+    portfolio = Portfolio(capital=10000.0, available_cash=10000.0, daily_pnl=0.0)
+
+    # 1. Share price exceeds ₹5,000 limit -> Rejected
+    app, qty, reason = rm.evaluate_order(
+        symbol="EXPENSIVE",
+        side="BUY",
+        entry_price=5500.0,
+        stop_loss=5400.0,
+        target=5700.0,
+        portfolio=portfolio,
+        open_positions_count=0
+    )
+    assert app is False
+    assert qty == 0
+    assert "exceeds maximum ₹5000.00 investment limit per trade" in reason
+
+    # 2. Risk budget allows 15 shares, but ₹5,000 cap limits to 10 shares
+    app, qty, reason = rm.evaluate_order(
+        symbol="CAPPED",
+        side="BUY",
+        entry_price=500.0,
+        stop_loss=490.0,
+        target=520.0,
+        portfolio=portfolio,
+        open_positions_count=0
+    )
+    assert app is True
+    assert qty == 10
+    assert qty * 500.0 <= 5000.0
+
+    # 3. Risk per share exceeds risk budget and 1.5x allowance -> Rejected
+    app, qty, reason = rm.evaluate_order(
+        symbol="HIGH_RISK",
+        side="BUY",
+        entry_price=1000.0,
+        stop_loss=700.0,
+        target=1600.0,
+        portfolio=portfolio,
+        open_positions_count=0
+    )
+    assert app is False
+    assert qty == 0
+    assert "exceeds risk budget" in reason
+
+    # 4. Single share allowed if within 1.5x risk budget
+    app, qty, reason = rm.evaluate_order(
+        symbol="ONE_SHARE",
+        side="BUY",
+        entry_price=1000.0,
+        stop_loss=820.0,
+        target=1400.0,
+        portfolio=portfolio,
+        open_positions_count=0
+    )
+    assert app is True
+    assert qty == 1
+    assert qty * 1000.0 <= 5000.0
+
+    # 5. Insufficient cash -> Rejected
+    low_cash_portfolio = Portfolio(capital=10000.0, available_cash=400.0, daily_pnl=0.0)
+    app, qty, reason = rm.evaluate_order(
+        symbol="NO_CASH",
+        side="BUY",
+        entry_price=1000.0,
+        stop_loss=980.0,
+        target=1040.0,
+        portfolio=low_cash_portfolio,
+        open_positions_count=0
+    )
+    assert app is False
+    assert qty == 0
+    assert "Insufficient cash" in reason
+
 
 
 

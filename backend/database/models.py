@@ -155,8 +155,8 @@ class Portfolio(Base):
     __tablename__ = "portfolio"
 
     id = Column(Integer, primary_key=True, index=True)
-    capital = Column(Float, default=100000.0)
-    available_cash = Column(Float, default=100000.0)
+    capital = Column(Float, default=10000.0)
+    available_cash = Column(Float, default=10000.0)
     invested_amount = Column(Float, default=0.0)
     realized_pnl = Column(Float, default=0.0)
     unrealized_pnl = Column(Float, default=0.0)

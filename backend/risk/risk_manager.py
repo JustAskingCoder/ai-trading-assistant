@@ -16,13 +16,20 @@ class RiskManager:
         logger.warning("KILL SWITCH ACTIVATED: %s", reason)
         self._log_risk_event("KILL_SWITCH_ON", f"Kill switch activated: {reason}", "CRITICAL")
 
-    def deactivate_kill_switch(self) -> None:
+    def deactivate_kill_switch(self, db_session=None) -> None:
         self.kill_switch_active = False
         logger.info("Kill switch deactivated.")
-        self._log_risk_event("KILL_SWITCH_OFF", "Kill switch deactivated by operator", "INFO")
+        self._log_risk_event("KILL_SWITCH_OFF", "Kill switch deactivated by operator", "INFO", db_session=db_session)
 
-    def _log_risk_event(self, event_type: str, description: str, severity: str = "WARNING"):
-        db = self._db or SessionLocal()
+    def _log_risk_event(self, event_type: str, description: str, severity: str = "WARNING", db_session=None):
+        should_close = False
+        if db_session:
+            db = db_session
+        elif self._db:
+            db = self._db
+        else:
+            db = SessionLocal()
+            should_close = True
         try:
             event = RiskEvent(
                 event_type=event_type,
@@ -34,7 +41,7 @@ class RiskManager:
         except Exception as e:
             logger.error("Failed to log risk event: %s", e)
         finally:
-            if not self._db:
+            if should_close:
                 db.close()
 
     def evaluate_order(
@@ -102,25 +109,33 @@ class RiskManager:
             self.activate_kill_switch("Daily loss limit exceeded")
             return False, 0, reason
 
-        # 7. Position Sizing
-        # risk_amount = capital * risk_percentage
-        # position_size = risk_amount / abs(entry - stop_loss)
+        # 7. Position Sizing & Investment Cap
+        max_trade_cap = getattr(settings, 'MAX_INVESTMENT_PER_TRADE', 5000.0)
+        max_qty_by_cap = int(max_trade_cap / entry_price)
+        if max_qty_by_cap <= 0:
+            reason = f"Order rejected: Share price (₹{entry_price:.2f}) exceeds maximum ₹{max_trade_cap:.2f} investment limit per trade."
+            self._log_risk_event("REJECT_TRADE_CAP", reason, "WARNING")
+            return False, 0, reason
+
         risk_budget = portfolio.capital * settings.RISK_PER_TRADE
         ideal_quantity = int(risk_budget / (risk_per_share + 1e-10))
 
         if ideal_quantity <= 0:
-            reason = "Order rejected: Calculated position size is 0."
-            return False, 0, reason
+            ideal_quantity = 1 if (1 * entry_price <= max_trade_cap and 1 * risk_per_share <= risk_budget * 1.5) else 0
+            if ideal_quantity <= 0:
+                reason = f"Order rejected: Risk per share (₹{risk_per_share:.2f}) exceeds risk budget (₹{risk_budget:.2f})."
+                self._log_risk_event("REJECT_RISK_BUDGET", reason, "WARNING")
+                return False, 0, reason
+
+        ideal_quantity = min(ideal_quantity, max_qty_by_cap)
 
         # 8. Check Available Cash / Exposure
-        total_cost = ideal_quantity * entry_price
-        if total_cost > portfolio.available_cash:
-            # Scale down to available cash if cash is lower
-            scaled_quantity = int(portfolio.available_cash / entry_price)
-            if scaled_quantity <= 0:
-                reason = f"Order rejected: Insufficient cash (Available: ₹{portfolio.available_cash:.2f}, Required: ₹{total_cost:.2f})."
+        if ideal_quantity * entry_price > portfolio.available_cash:
+            ideal_quantity = int(portfolio.available_cash / entry_price)
+            if ideal_quantity <= 0:
+                reason = f"Order rejected: Insufficient cash (Available: ₹{portfolio.available_cash:.2f}, Required: ₹{entry_price:.2f})."
+                self._log_risk_event("REJECT_INSUFFICIENT_CASH", reason, "WARNING")
                 return False, 0, reason
-            ideal_quantity = scaled_quantity
 
         logger.info(
             "Order APPROVED by RiskManager: %s %d %s @ ₹%.2f (Risk: ₹%.2f, R:R: %.2f)",

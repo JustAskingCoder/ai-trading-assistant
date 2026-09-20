@@ -240,7 +240,7 @@ export default function App() {
 
   // Portfolio Reset
   const handleResetPortfolio = async () => {
-    if (!window.confirm('Reset virtual portfolio to ₹100,000 initial capital?')) {
+    if (!window.confirm('Reset virtual portfolio to ₹10,000 initial capital?')) {
       return;
     }
     try {
@@ -365,7 +365,7 @@ export default function App() {
           {/* Reset Portfolio */}
           <button
             onClick={handleResetPortfolio}
-            title="Reset Virtual Portfolio to ₹100,000"
+            title="Reset Virtual Portfolio to ₹10,000"
             className="flex items-center gap-1.5 rounded-xl border border-dark-600 bg-dark-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-dark-600 hover:text-amber-400 hover:border-amber-500/40 transition-colors shadow-sm"
           >
             <RotateCcw className="h-3.5 w-3.5" />

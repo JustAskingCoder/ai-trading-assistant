@@ -40,8 +40,13 @@ export const SignalCard: React.FC<Props> = ({
   }
 
   const isBuy = signal.signal === 'BUY';
+  const maxInvestment = 5000;
   const riskPerShare = Math.max(0.1, Math.abs(signal.entry_price - signal.stop_loss));
-  const qty = Math.max(1, Math.floor(500 / riskPerShare));
+  const maxQtyByCost = Math.max(1, Math.floor(maxInvestment / signal.entry_price));
+  const riskBudget = 150; // 1.5% of ₹10,000 account capital
+  const qtyByRisk = Math.max(1, Math.floor(riskBudget / riskPerShare));
+  const qty = Math.min(qtyByRisk, maxQtyByCost);
+  const totalInvestment = (qty * signal.entry_price).toFixed(2);
   const maxRiskRupees = (qty * riskPerShare).toFixed(2);
   const targetProfitRupees = (qty * Math.abs(signal.target - signal.entry_price)).toFixed(2);
 
@@ -131,7 +136,7 @@ export const SignalCard: React.FC<Props> = ({
                   isBuy ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                RECOMMENDED ACTION: {isBuy ? 'BUY' : 'SELL'} {qty} SHARES
+                RECOMMENDED ACTION: {isBuy ? 'BUY' : 'SELL'} {qty} SHARES (Invest: ₹{totalInvestment} / Max ₹5k)
               </div>
             </div>
             <div className="text-xs font-semibold text-slate-300 sm:text-right">
@@ -144,20 +149,20 @@ export const SignalCard: React.FC<Props> = ({
         <div className="mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-sm">
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
             <div className="text-[11px] text-slate-400 font-medium">Entry</div>
-            <div className="text-base font-bold text-white mt-0.5">₹{signal.entry_price.toFixed(2)}</div>
+            <div className="text-sm sm:text-base font-bold text-white mt-0.5">₹{signal.entry_price.toFixed(2)}</div>
           </div>
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
             <div className="text-[11px] text-slate-400 font-medium">Stop Loss</div>
-            <div className="text-base font-bold text-rose-400 mt-0.5">₹{signal.stop_loss.toFixed(2)}</div>
+            <div className="text-xs sm:text-sm font-bold text-rose-400 mt-0.5">₹{signal.stop_loss.toFixed(2)} (-₹{maxRiskRupees})</div>
           </div>
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
-            <div className="text-[11px] text-slate-400 font-medium">Target Price</div>
-            <div className="text-base font-bold text-emerald-400 mt-0.5">₹{signal.target.toFixed(2)}</div>
+            <div className="text-[11px] text-slate-400 font-medium">Target</div>
+            <div className="text-xs sm:text-sm font-bold text-emerald-400 mt-0.5">₹{signal.target.toFixed(2)} (+₹{targetProfitRupees})</div>
           </div>
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
-            <div className="text-[11px] text-slate-400 font-medium">Risk / Reward</div>
-            <div className="text-xs sm:text-[13px] font-bold text-yellow-400 mt-0.5">
-              ₹{maxRiskRupees} risk / +₹{targetProfitRupees} reward
+            <div className="text-[11px] text-slate-400 font-medium">Allocation</div>
+            <div className="text-xs sm:text-sm font-bold text-yellow-400 mt-0.5">
+              ₹{totalInvestment} (Risk: ₹{maxRiskRupees})
             </div>
           </div>
         </div>
@@ -221,7 +226,7 @@ export const SignalCard: React.FC<Props> = ({
           <span>
             {executing
               ? 'EXECUTING ORDER...'
-              : `⚡ PLACE ORDER (${isBuy ? 'BUY' : 'SELL'} ${qty} SHARES)`}
+              : `⚡ PLACE ORDER (${isBuy ? 'BUY' : 'SELL'} ${qty} SHARES · ₹${totalInvestment})`}
           </span>
         </button>
 
