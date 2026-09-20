@@ -153,8 +153,9 @@ export default function App() {
 
       const result = await api.analyzeWithAI(payload);
       setAiAnalysis(result);
-    } catch (e) {
+    } catch (e: any) {
       console.error('AI analysis error:', e);
+      alert(`AI Analysis Failed: ${e?.response?.data?.detail || e.message || 'Unknown error'}`);
     } finally {
       setAiLoading(false);
     }

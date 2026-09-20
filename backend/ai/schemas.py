@@ -1,6 +1,6 @@
 """Pydantic schemas for AI market setup analysis."""
 from pydantic import BaseModel, Field
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Any
 
 
 class EntryZone(BaseModel):
