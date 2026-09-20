@@ -6,12 +6,14 @@ from backend.data.data_validator import validate_ohlcv_dataframe
 from backend.indicators.engine import calculate_indicators
 from backend.patterns.engine import detect_all_patterns
 from backend.strategies.base_strategy import MomentumStrategy, BreakoutStrategy, TrendFollowingStrategy
-from backend.risk.risk_manager import RiskManager
-from backend.paper.paper_broker import PaperBroker
+from backend.risk.risk_manager import RiskManager, risk_manager
+from backend.paper.paper_broker import PaperBroker, paper_broker
 from backend.backtesting.engine import run_backtest
 from backend.ai.schemas import AIAnalysisResponse, EntryZone
 from backend.database.session import SessionLocal, Base, engine
 from backend.database.models import Portfolio, Position
+from backend.main import app
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture(scope="module")
@@ -172,3 +174,76 @@ def test_backtest_execution(sample_df):
     assert "win_rate" in res
     assert "equity_curve" in res
     assert len(res["equity_curve"]) > 0
+
+
+def test_paper_broker_reset_portfolio():
+    db = SessionLocal()
+    try:
+        # Place a paper order to create a position and spend cash
+        paper_broker.place_order("TEST_RESET", "BUY", 10, 100.0, db=db)
+        risk_manager.activate_kill_switch("Testing reset")
+
+        # Confirm position exists and kill switch is active
+        pos = db.query(Position).filter(Position.symbol == "TEST_RESET").first()
+        assert pos is not None
+        assert risk_manager.kill_switch_active is True
+
+        # Perform reset
+        pf = paper_broker.reset_portfolio(db)
+        assert pf.capital == 100000.0
+        assert pf.available_cash == 100000.0
+        assert pf.invested_amount == 0.0
+        assert pf.realized_pnl == 0.0
+        assert pf.unrealized_pnl == 0.0
+        assert pf.daily_pnl == 0.0
+
+        # Assert positions cleared and kill switch deactivated
+        positions = db.query(Position).all()
+        assert len(positions) == 0
+        assert risk_manager.kill_switch_active is False
+    finally:
+        db.close()
+
+
+def test_portfolio_reset_api():
+    client = TestClient(app)
+    response = client.post("/api/portfolio/reset")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["capital"] == 100000.0
+    assert data["available_cash"] == 100000.0
+    assert data["invested_amount"] == 0.0
+    assert data["open_positions"] == 0
+
+
+def test_close_position_api():
+    db = SessionLocal()
+    try:
+        # Create a test position
+        paper_broker.place_order("TEST_CLOSE", "BUY", 5, 200.0, db=db)
+        pos = db.query(Position).filter(Position.symbol == "TEST_CLOSE").first()
+        assert pos is not None
+        pos_id = pos.id
+
+        client = TestClient(app)
+        # Close the position
+        resp = client.post(f"/api/positions/{pos_id}/close")
+        assert resp.status_code == 200
+        result = resp.json()
+        assert result["status"] == "FILLED"
+        assert result["side"] == "SELL"
+        assert result["symbol"] == "TEST_CLOSE"
+        assert result["quantity"] == 5
+
+        # Verify position is gone
+        closed_pos = db.query(Position).filter(Position.id == pos_id).first()
+        assert closed_pos is None
+
+        # Verify 404 for nonexistent position
+        err_resp = client.post("/api/positions/9999999/close")
+        assert err_resp.status_code == 404
+    finally:
+        # Reset portfolio cleanly after test
+        paper_broker.reset_portfolio(db)
+        db.close()
+
