@@ -1,13 +1,40 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { AIAnalysis } from '../../types';
-import { Sparkles, CheckCircle, AlertOctagon, HelpCircle } from 'lucide-react';
+import { Sparkles, CheckCircle, AlertOctagon, Zap, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { api } from '../../services/api';
+
+interface TradeFeedback {
+  type: 'success' | 'rejected';
+  message: string;
+}
 
 interface Props {
   analysis: AIAnalysis | null;
   loading: boolean;
+  symbol?: string;
+  onDirectOrder?: (order: {
+    symbol: string;
+    side: string;
+    price: number;
+    stop_loss: number;
+    target: number;
+    quantity: number;
+  }) => Promise<{ success: boolean; data?: any; error?: string }>;
 }
 
-export const AIAnalysisCard: React.FC<Props> = ({ analysis, loading }) => {
+export const AIAnalysisCard: React.FC<Props> = ({
+  analysis,
+  loading,
+  symbol = 'RELIANCE',
+  onDirectOrder
+}) => {
+  const [executing, setExecuting] = useState(false);
+  const [feedback, setFeedback] = useState<TradeFeedback | null>(null);
+
+  useEffect(() => {
+    setFeedback(null);
+  }, [analysis]);
+
   if (loading) {
     return (
       <div className="rounded-xl border border-dark-600 bg-dark-800 p-5 shadow-lg flex flex-col items-center justify-center min-h-[220px]">
@@ -29,87 +56,214 @@ export const AIAnalysisCard: React.FC<Props> = ({ analysis, loading }) => {
 
   const isBuy = analysis.signal === 'BUY';
   const isSell = analysis.signal === 'SELL';
+  const isActionable = isBuy || isSell;
+
+  // Midpoint entry price from AI entry zone
+  const entryPrice = analysis.entry_zone
+    ? Number(((analysis.entry_zone.min + analysis.entry_zone.max) / 2).toFixed(2))
+    : 0;
+
+  // 0.5% risk budget position sizing
+  const riskPerShare = Math.max(0.1, Math.abs(entryPrice - analysis.stop_loss));
+  const qty = Math.max(1, Math.floor(500 / riskPerShare));
+  const maxRiskRupees = (qty * riskPerShare).toFixed(2);
+  const targetProfitRupees = (qty * Math.abs(analysis.target - entryPrice)).toFixed(2);
+
+  const handleExecuteAISetup = async () => {
+    if (!isActionable) return;
+    setExecuting(true);
+    setFeedback(null);
+    try {
+      let result: { success: boolean; data?: any; error?: string };
+      if (onDirectOrder) {
+        result = await onDirectOrder({
+          symbol,
+          side: analysis.signal,
+          price: entryPrice,
+          stop_loss: analysis.stop_loss,
+          target: analysis.target,
+          quantity: qty
+        });
+      } else {
+        const res = await api.placePaperOrder({
+          symbol,
+          side: analysis.signal,
+          price: entryPrice,
+          stop_loss: analysis.stop_loss,
+          target: analysis.target,
+          order_type: 'MARKET'
+        });
+        result = { success: true, data: res };
+      }
+
+      if (result.success) {
+        const filledQty = result.data?.quantity ?? qty;
+        const filledPrice = Number(result.data?.price ?? entryPrice).toFixed(2);
+        const sl = analysis.stop_loss.toFixed(2);
+        const tgt = analysis.target.toFixed(2);
+        setFeedback({
+          type: 'success',
+          message: `✓ Trade Successful! Filled ${filledQty} shares @ ₹${filledPrice} (Stop Loss: ₹${sl}, Target: ₹${tgt})`
+        });
+      } else {
+        setFeedback({
+          type: 'rejected',
+          message: `✗ Trade Rejected: ${result.error || 'Declined by risk engine'}`
+        });
+      }
+    } catch (err: any) {
+      const errorReason = err?.response?.data?.detail || err?.message || 'Execution error';
+      setFeedback({
+        type: 'rejected',
+        message: `✗ Trade Rejected: ${errorReason}`
+      });
+    } finally {
+      setExecuting(false);
+    }
+  };
 
   return (
-    <div className="rounded-xl border border-dark-600 bg-dark-800 p-5 shadow-lg">
-      <div className="flex items-center justify-between border-b border-dark-700 pb-3">
-        <div className="flex items-center gap-2">
-          <Sparkles className="h-4 w-4 text-indigo-400" />
-          <h3 className="font-bold text-white text-base tracking-tight">{analysis.setup}</h3>
+    <div className="rounded-xl border border-dark-600 bg-dark-800 p-5 shadow-lg flex flex-col justify-between">
+      <div>
+        <div className="flex items-center justify-between border-b border-dark-700 pb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-indigo-400" />
+            <h3 className="font-bold text-white text-base tracking-tight">{analysis.setup}</h3>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-slate-400">
+              Confidence: <span className="text-indigo-300 font-bold">{(analysis.confidence * 100).toFixed(0)}%</span>
+            </span>
+            <span
+              className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
+                isBuy
+                  ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                  : isSell
+                  ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                  : 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
+              }`}
+            >
+              AI {analysis.signal}
+            </span>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-slate-400">
-            Confidence: <span className="text-indigo-300 font-bold">{(analysis.confidence * 100).toFixed(0)}%</span>
-          </span>
-          <span
-            className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-              isBuy
-                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                : isSell
-                ? 'bg-red-500/20 text-red-400 border border-red-500/30'
-                : 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
+
+        {/* AI Metric Grid */}
+        <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
+            <span className="text-slate-400">Entry Zone:</span>
+            <div className="font-semibold text-white mt-0.5">
+              ₹{analysis.entry_zone.min} - ₹{analysis.entry_zone.max}
+            </div>
+          </div>
+          <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
+            <span className="text-slate-400">Stop Loss:</span>
+            <div className="font-semibold text-rose-400 mt-0.5">₹{analysis.stop_loss}</div>
+          </div>
+          <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
+            <span className="text-slate-400">Target:</span>
+            <div className="font-semibold text-emerald-400 mt-0.5">₹{analysis.target}</div>
+          </div>
+          <div className="rounded bg-dark-900/60 p-2 border border-dark-700/60">
+            <span className="text-slate-400">Sizing & R:R:</span>
+            <div
+              className="font-semibold text-yellow-400 mt-0.5 truncate"
+              title={`₹${maxRiskRupees} risk / +₹${targetProfitRupees} reward (${qty} shares)`}
+            >
+              {qty} sh • +₹{targetProfitRupees}
+            </div>
+          </div>
+        </div>
+
+        {/* Supporting, Risk & Invalidation Factors */}
+        <div className="mt-3 space-y-2 text-xs">
+          <div>
+            <div className="flex items-center gap-1 font-semibold text-emerald-400 mb-1">
+              <CheckCircle className="h-3.5 w-3.5" /> Supporting Factors
+            </div>
+            <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
+              {analysis.supporting_factors.map((f, i) => (
+                <li key={i}>{f}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-1 font-semibold text-amber-400 mb-1">
+              <AlertOctagon className="h-3.5 w-3.5" /> Risk Factors
+            </div>
+            <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
+              {analysis.risk_factors.map((r, i) => (
+                <li key={i}>{r}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <div className="flex items-center gap-1 font-semibold text-rose-400 mb-1">
+              <AlertOctagon className="h-3.5 w-3.5" /> Invalidation Conditions
+            </div>
+            <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
+              {analysis.invalidation_conditions.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+
+        {/* Inline Feedback Alert */}
+        {feedback && (
+          <div
+            className={`mt-3.5 flex items-start gap-2.5 rounded-lg p-3 text-xs font-semibold border transition-all ${
+              feedback.type === 'success'
+                ? 'bg-emerald-950/40 border-emerald-500/50 text-emerald-300'
+                : 'bg-rose-950/40 border-rose-500/50 text-rose-300'
             }`}
           >
-            AI {analysis.signal}
-          </span>
-        </div>
+            {feedback.type === 'success' ? (
+              <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400 mt-0.5" />
+            ) : (
+              <AlertTriangle className="h-4 w-4 shrink-0 text-rose-400 mt-0.5" />
+            )}
+            <div className="flex-1 leading-relaxed">{feedback.message}</div>
+            <button
+              onClick={() => setFeedback(null)}
+              className="text-slate-400 hover:text-white text-sm leading-none px-1"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-        <div className="rounded bg-dark-900/60 p-2">
-          <span className="text-slate-400">Entry Zone:</span>
-          <div className="font-semibold text-white">
-            ₹{analysis.entry_zone.min} - ₹{analysis.entry_zone.max}
+      <div>
+        {/* 1-click Execute AI Setup Button */}
+        {isActionable && (
+          <div className="mt-4 pt-3 border-t border-dark-700/80">
+            <button
+              onClick={handleExecuteAISetup}
+              disabled={executing}
+              className={`w-full flex items-center justify-center gap-2 rounded-lg py-2.5 px-4 text-xs sm:text-sm font-black text-white transition-all shadow-md ${
+                isBuy
+                  ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
+                  : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/30'
+              } disabled:opacity-50 disabled:cursor-not-allowed`}
+            >
+              <Zap className="h-4 w-4 fill-current" />
+              <span>
+                {executing
+                  ? 'EXECUTING AI SETUP...'
+                  : `⚡ EXECUTE AI SETUP (${analysis.signal} ${qty} SHARES)`}
+              </span>
+            </button>
           </div>
-        </div>
-        <div className="rounded bg-dark-900/60 p-2">
-          <span className="text-slate-400">Stop Loss:</span>
-          <div className="font-semibold text-rose-400">₹{analysis.stop_loss}</div>
-        </div>
-        <div className="rounded bg-dark-900/60 p-2">
-          <span className="text-slate-400">Target:</span>
-          <div className="font-semibold text-emerald-400">₹{analysis.target}</div>
-        </div>
-      </div>
+        )}
 
-      <div className="mt-3 space-y-2 text-xs">
-        <div>
-          <div className="flex items-center gap-1 font-semibold text-emerald-400 mb-1">
-            <CheckCircle className="h-3.5 w-3.5" /> Supporting Factors
-          </div>
-          <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
-            {analysis.supporting_factors.map((f, i) => (
-              <li key={i}>{f}</li>
-            ))}
-          </ul>
+        <div className="mt-3 border-t border-dark-700/80 pt-2 text-[11px] text-slate-500 flex justify-between">
+          <span>Provider: {analysis.provider || 'AI Engine'} ({analysis.model || 'Structured'})</span>
+          <span>Paper Mode Only • Non-Financial Advice</span>
         </div>
-
-        <div>
-          <div className="flex items-center gap-1 font-semibold text-amber-400 mb-1">
-            <AlertOctagon className="h-3.5 w-3.5" /> Risk Factors
-          </div>
-          <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
-            {analysis.risk_factors.map((r, i) => (
-              <li key={i}>{r}</li>
-            ))}
-          </ul>
-        </div>
-
-        <div>
-          <div className="flex items-center gap-1 font-semibold text-rose-400 mb-1">
-            <AlertOctagon className="h-3.5 w-3.5" /> Invalidation Conditions
-          </div>
-          <ul className="list-disc list-inside space-y-0.5 text-slate-300 pl-1">
-            {analysis.invalidation_conditions.map((c, i) => (
-              <li key={i}>{c}</li>
-            ))}
-          </ul>
-        </div>
-      </div>
-
-      <div className="mt-4 border-t border-dark-700/80 pt-2 text-[11px] text-slate-500 flex justify-between">
-        <span>Provider: {analysis.provider || 'AI Engine'} ({analysis.model || 'Structured'})</span>
-        <span>Paper Mode Only • Non-Financial Advice</span>
       </div>
     </div>
   );

@@ -179,6 +179,40 @@ export default function App() {
     setTrades(tr);
   };
 
+  // Direct 1-click order execution handler
+  const handleDirectOrder = async (orderData: {
+    symbol: string;
+    side: string;
+    price: number;
+    stop_loss: number;
+    target: number;
+    order_type?: string;
+    quantity?: number;
+  }): Promise<{ success: boolean; data?: any; error?: string }> => {
+    try {
+      const res = await api.placePaperOrder({
+        symbol: orderData.symbol,
+        side: orderData.side,
+        price: orderData.price,
+        stop_loss: orderData.stop_loss,
+        target: orderData.target,
+        order_type: orderData.order_type || 'MARKET'
+      });
+      const [p, pos, tr] = await Promise.all([
+        api.getPortfolio(),
+        api.getPositions(),
+        api.getTrades()
+      ]);
+      setPortfolio(p);
+      setPositions(pos);
+      setTrades(tr);
+      return { success: true, data: res };
+    } catch (err: any) {
+      const errorMsg = err?.response?.data?.detail || err?.message || 'Order execution failed';
+      return { success: false, error: errorMsg };
+    }
+  };
+
   // Portfolio Reset
   const handleResetPortfolio = async () => {
     if (!window.confirm('Reset virtual portfolio to ₹100,000 initial capital?')) {
@@ -377,8 +411,23 @@ export default function App() {
               onAnalyzeAI={handleAnalyzeAI}
               onPaperTrade={handlePaperOrder}
               onIgnore={() => setActiveSignal(null)}
+              onDirectOrder={async (signal, qty) => {
+                return await handleDirectOrder({
+                  symbol: signal.symbol,
+                  side: signal.signal,
+                  price: signal.entry_price,
+                  stop_loss: signal.stop_loss,
+                  target: signal.target,
+                  quantity: qty
+                });
+              }}
             />
-            <AIAnalysisCard analysis={aiAnalysis} loading={aiLoading} />
+            <AIAnalysisCard
+              analysis={aiAnalysis}
+              loading={aiLoading}
+              symbol={activeSignal?.symbol || symbol}
+              onDirectOrder={handleDirectOrder}
+            />
           </div>
 
           {/* Open Positions and Completed Trade History */}
