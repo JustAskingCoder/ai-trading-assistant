@@ -1,0 +1,132 @@
+"""Deterministic Risk Management Engine for AI Trading Assistant."""
+from typing import Dict, Any, Tuple
+from backend.core.config import settings
+from backend.core.logging import logger
+from backend.database.session import SessionLocal
+from backend.database.models import Portfolio, Position, RiskEvent
+
+
+class RiskManager:
+    def __init__(self, db_session=None):
+        self.kill_switch_active = False
+        self._db = db_session
+
+    def activate_kill_switch(self, reason: str = "Manual activation") -> None:
+        self.kill_switch_active = True
+        logger.warning("KILL SWITCH ACTIVATED: %s", reason)
+        self._log_risk_event("KILL_SWITCH_ON", f"Kill switch activated: {reason}", "CRITICAL")
+
+    def deactivate_kill_switch(self) -> None:
+        self.kill_switch_active = False
+        logger.info("Kill switch deactivated.")
+        self._log_risk_event("KILL_SWITCH_OFF", "Kill switch deactivated by operator", "INFO")
+
+    def _log_risk_event(self, event_type: str, description: str, severity: str = "WARNING"):
+        db = self._db or SessionLocal()
+        try:
+            event = RiskEvent(
+                event_type=event_type,
+                description=description,
+                severity=severity
+            )
+            db.add(event)
+            db.commit()
+        except Exception as e:
+            logger.error("Failed to log risk event: %s", e)
+        finally:
+            if not self._db:
+                db.close()
+
+    def evaluate_order(
+        self,
+        symbol: str,
+        side: str,
+        entry_price: float,
+        stop_loss: float,
+        target: float,
+        portfolio: Portfolio,
+        open_positions_count: int
+    ) -> Tuple[bool, int, str]:
+        """
+        Evaluate if a proposed order meets deterministic risk rules and calculate quantity.
+        Returns: (approved: bool, quantity: int, reason: str)
+        """
+        # 1. Check Kill Switch
+        if self.kill_switch_active:
+            reason = "Order rejected: Global Kill Switch is ACTIVE."
+            self._log_risk_event("REJECT_KILL_SWITCH", reason, "CRITICAL")
+            return False, 0, reason
+
+        # 2. Check Stop Loss Mandatory
+        if stop_loss is None or stop_loss <= 0:
+            reason = "Order rejected: Mandatory Stop-Loss missing or non-positive."
+            self._log_risk_event("REJECT_NO_STOP_LOSS", reason, "HIGH")
+            return False, 0, reason
+
+        # 3. Check Directional Validity
+        if side.upper() == "BUY":
+            if stop_loss >= entry_price:
+                reason = f"Order rejected: BUY Stop-loss ({stop_loss}) must be below Entry price ({entry_price})."
+                return False, 0, reason
+            if target <= entry_price:
+                reason = f"Order rejected: BUY Target ({target}) must be above Entry price ({entry_price})."
+                return False, 0, reason
+        elif side.upper() == "SELL":
+            if stop_loss <= entry_price:
+                reason = f"Order rejected: SELL Stop-loss ({stop_loss}) must be above Entry price ({entry_price})."
+                return False, 0, reason
+            if target >= entry_price:
+                reason = f"Order rejected: SELL Target ({target}) must be below Entry price ({entry_price})."
+                return False, 0, reason
+
+        # 4. Check Risk/Reward Ratio
+        risk_per_share = abs(entry_price - stop_loss)
+        reward_per_share = abs(target - entry_price)
+        rr_ratio = reward_per_share / (risk_per_share + 1e-10)
+
+        if rr_ratio < settings.MIN_RISK_REWARD:
+            reason = f"Order rejected: Risk/Reward ratio {rr_ratio:.2f} is below minimum required {settings.MIN_RISK_REWARD}."
+            self._log_risk_event("REJECT_LOW_RR", reason, "WARNING")
+            return False, 0, reason
+
+        # 5. Check Max Open Positions
+        if open_positions_count >= settings.MAX_OPEN_POSITIONS:
+            reason = f"Order rejected: Maximum open positions limit ({settings.MAX_OPEN_POSITIONS}) reached."
+            self._log_risk_event("REJECT_MAX_POSITIONS", reason, "WARNING")
+            return False, 0, reason
+
+        # 6. Check Daily Loss Limit
+        max_allowed_daily_loss = portfolio.capital * settings.MAX_DAILY_LOSS
+        if portfolio.daily_pnl <= -max_allowed_daily_loss:
+            reason = f"Order rejected: Daily loss limit exceeded (-₹{-portfolio.daily_pnl:.2f} >= max -₹{max_allowed_daily_loss:.2f})."
+            self.activate_kill_switch("Daily loss limit exceeded")
+            return False, 0, reason
+
+        # 7. Position Sizing
+        # risk_amount = capital * risk_percentage
+        # position_size = risk_amount / abs(entry - stop_loss)
+        risk_budget = portfolio.capital * settings.RISK_PER_TRADE
+        ideal_quantity = int(risk_budget / (risk_per_share + 1e-10))
+
+        if ideal_quantity <= 0:
+            reason = "Order rejected: Calculated position size is 0."
+            return False, 0, reason
+
+        # 8. Check Available Cash / Exposure
+        total_cost = ideal_quantity * entry_price
+        if total_cost > portfolio.available_cash:
+            # Scale down to available cash if cash is lower
+            scaled_quantity = int(portfolio.available_cash / entry_price)
+            if scaled_quantity <= 0:
+                reason = f"Order rejected: Insufficient cash (Available: ₹{portfolio.available_cash:.2f}, Required: ₹{total_cost:.2f})."
+                return False, 0, reason
+            ideal_quantity = scaled_quantity
+
+        logger.info(
+            "Order APPROVED by RiskManager: %s %d %s @ ₹%.2f (Risk: ₹%.2f, R:R: %.2f)",
+            side, ideal_quantity, symbol, entry_price, ideal_quantity * risk_per_share, rr_ratio
+        )
+        return True, ideal_quantity, "Order approved by deterministic risk engine."
+
+
+risk_manager = RiskManager()
