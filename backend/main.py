@@ -16,9 +16,24 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing %s v%s...", settings.PROJECT_NAME, settings.VERSION)
     init_db()
     logger.info("Trading Mode: %s (LIVE trading disabled in V1)", settings.TRADING_MODE)
+
+    # Auto-load default dataset into simulator if available
+    from pathlib import Path
+    sample_file = Path("data/RELIANCE_5m.csv")
+    if sample_file.exists():
+        try:
+            from backend.data.csv_loader import load_csv_to_dataframe
+            df, _ = load_csv_to_dataframe(str(sample_file))
+            df["symbol"] = "RELIANCE"
+            simulator.load_dataset(df)
+            logger.info("Pre-loaded %d candles into simulator from %s.", len(df), sample_file)
+        except Exception as e:
+            logger.warning("Could not pre-load sample data: %s", e)
+
     yield
     simulator.stop()
     logger.info("Shutting down %s.", settings.PROJECT_NAME)
+
 
 
 app = FastAPI(
