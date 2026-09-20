@@ -43,7 +43,7 @@ class MarketSimulator:
             except Exception:
                 pass
 
-    def start(self, speed: float = 1.0):
+    def start(self, speed: float = 1.0, loop: Optional[asyncio.AbstractEventLoop] = None):
         if self.data is None or self.data.empty:
             raise ValueError("No market data loaded in simulator.")
 
@@ -57,7 +57,22 @@ class MarketSimulator:
         if not self.is_running:
             self.is_running = True
             self.is_paused = False
-            self._task = asyncio.create_task(self._simulation_loop())
+            if self.current_index >= len(self.data):
+                self.current_index = 0
+            if self._task and not self._task.done():
+                self._task.cancel()
+
+            target_loop = loop
+            if target_loop is None:
+                try:
+                    target_loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+
+            if target_loop and target_loop.is_running():
+                self._task = target_loop.create_task(self._simulation_loop())
+            else:
+                self._task = asyncio.create_task(self._simulation_loop())
             logger.info("MarketSimulator started at %.1fx speed from index %d.", self.speed, self.current_index)
 
     def pause(self):
@@ -133,7 +148,7 @@ class MarketSimulator:
             self.is_running = False
             await self._broadcast({"type": "SIMULATION_COMPLETE", "index": self.current_index})
         except asyncio.CancelledError:
-            pass
+            self.is_running = False
         except Exception as e:
             logger.error("Error in simulation loop: %s", e)
             self.is_running = False

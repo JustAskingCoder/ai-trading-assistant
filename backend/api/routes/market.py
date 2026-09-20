@@ -171,7 +171,7 @@ def get_indicators(symbol: str, interval: str = "5m", db: Session = Depends(get_
 
 
 @router.post("/simulator/control")
-def control_simulator(action: str, speed: float = 1.0):
+async def control_simulator(action: str, speed: float = 1.0):
     act = action.lower()
     if act == "start":
         simulator.start(speed)
