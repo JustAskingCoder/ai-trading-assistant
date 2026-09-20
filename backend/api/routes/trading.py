@@ -45,6 +45,32 @@ def get_portfolio(db: Session = Depends(get_db)):
     }
 
 
+@router.post("/portfolio/reset")
+def reset_portfolio(db: Session = Depends(get_db)):
+    portfolio = paper_broker.reset_portfolio(db)
+    positions_count = db.query(Position).count()
+    trades_count = db.query(Trade).count()
+    winning_trades = db.query(Trade).filter(Trade.pnl > 0).count()
+    losing_trades = db.query(Trade).filter(Trade.pnl <= 0).count()
+    win_rate = round(winning_trades / trades_count * 100.0, 2) if trades_count > 0 else 0.0
+
+    return {
+        "status": "success",
+        "message": "Portfolio reset successfully",
+        "capital": portfolio.capital,
+        "available_cash": round(portfolio.available_cash, 2),
+        "invested_amount": round(portfolio.invested_amount, 2),
+        "realized_pnl": round(portfolio.realized_pnl, 2),
+        "unrealized_pnl": round(portfolio.unrealized_pnl, 2),
+        "daily_pnl": round(portfolio.daily_pnl, 2),
+        "total_trades": trades_count,
+        "winning_trades": winning_trades,
+        "losing_trades": losing_trades,
+        "win_rate": win_rate,
+        "open_positions": positions_count
+    }
+
+
 @router.get("/positions")
 def get_positions(db: Session = Depends(get_db)):
     positions = db.query(Position).all()
@@ -58,6 +84,27 @@ def get_positions(db: Session = Depends(get_db)):
         "unrealized_pnl": round(p.unrealized_pnl, 2),
         "pnl_percentage": round((p.current_price - p.average_price) / p.average_price * 100.0, 2) if p.average_price > 0 else 0.0
     } for p in positions]
+
+
+@router.post("/positions/{position_id}/close")
+def close_position(position_id: int, db: Session = Depends(get_db)):
+    pos = db.query(Position).filter(Position.id == position_id).first()
+    if not pos:
+        raise HTTPException(status_code=404, detail=f"Position {position_id} not found")
+
+    close_price = pos.current_price if (pos.current_price is not None and pos.current_price > 0) else pos.average_price
+
+    result = paper_broker.place_order(
+        symbol=pos.symbol,
+        side="SELL",
+        quantity=pos.quantity,
+        price=close_price,
+        stop_loss=0,
+        target=0,
+        order_type="MARKET",
+        db=db
+    )
+    return result
 
 
 @router.get("/orders")

@@ -13,8 +13,10 @@ export const api = {
     client.get(`/market/${symbol}`).then(r => r.data),
   getPortfolio: (): Promise<PortfolioData> =>
     client.get('/portfolio').then(r => r.data),
+  resetPortfolio: () => client.post('/portfolio/reset').then(r => r.data),
   getPositions: (): Promise<PositionData[]> =>
     client.get('/positions').then(r => r.data),
+  closePosition: (id: number) => client.post(`/positions/${id}/close`).then(r => r.data),
   getTrades: (): Promise<TradeData[]> =>
     client.get('/trades').then(r => r.data),
   getRiskStatus: (): Promise<RiskStatus> =>

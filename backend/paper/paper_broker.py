@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 from backend.database.session import SessionLocal
 from backend.database.models import Portfolio, Position, PaperOrder, Trade
 from backend.core.logging import logger
+from backend.core.config import settings
+from backend.risk.risk_manager import risk_manager
 
 
 class PaperBroker:
@@ -26,6 +28,35 @@ class PaperBroker:
             db.commit()
             db.refresh(portfolio)
         return portfolio
+
+    def reset_portfolio(self, db: Optional[Session] = None) -> Portfolio:
+        """Reset portfolio back to initial settings capital, clear positions, and deactivate kill switch."""
+        close_session = False
+        if db is None:
+            db = SessionLocal()
+            close_session = True
+
+        try:
+            portfolio = self.get_portfolio(db)
+            portfolio.capital = settings.INITIAL_CAPITAL
+            portfolio.available_cash = settings.INITIAL_CAPITAL
+            portfolio.invested_amount = 0.0
+            portfolio.realized_pnl = 0.0
+            portfolio.unrealized_pnl = 0.0
+            portfolio.daily_pnl = 0.0
+
+            db.query(Position).delete()
+
+            if risk_manager.kill_switch_active:
+                risk_manager.deactivate_kill_switch()
+
+            db.commit()
+            db.refresh(portfolio)
+            logger.info("Portfolio reset to ₹%.2f, positions cleared.", settings.INITIAL_CAPITAL)
+            return portfolio
+        finally:
+            if close_session:
+                db.close()
 
     def place_order(
         self,
@@ -121,6 +152,11 @@ class PaperBroker:
                     pos.quantity -= sold_qty
                     if pos.quantity <= 0:
                         db.delete(pos)
+
+                remaining = db.query(Position).all()
+                portfolio.unrealized_pnl = round(sum(p.unrealized_pnl for p in remaining), 2)
+                if not remaining:
+                    portfolio.invested_amount = 0.0
 
             db.commit()
             logger.info("PaperBroker filled %s order: %d %s @ ₹%.2f", side, quantity, symbol, price)

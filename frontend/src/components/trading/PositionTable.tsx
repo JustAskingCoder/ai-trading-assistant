@@ -5,9 +5,10 @@ import { TrendingUp, TrendingDown, Layers } from 'lucide-react';
 interface Props {
   positions: PositionData[];
   trades: TradeData[];
+  onClosePosition?: (id: number) => void;
 }
 
-export const PositionTable: React.FC<Props> = ({ positions, trades }) => {
+export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosition }) => {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Active Positions */}
@@ -30,6 +31,7 @@ export const PositionTable: React.FC<Props> = ({ positions, trades }) => {
                   <th className="py-2">Avg Price</th>
                   <th className="py-2">LTP</th>
                   <th className="py-2 text-right">Unrealized P&L</th>
+                  {onClosePosition && <th className="py-2 text-right">Action</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-dark-700/50">
@@ -49,6 +51,21 @@ export const PositionTable: React.FC<Props> = ({ positions, trades }) => {
                       <td className={`py-2.5 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>
                         {isProfit ? '+' : ''}₹{p.unrealized_pnl.toFixed(2)} ({isProfit ? '+' : ''}{p.pnl_percentage}%)
                       </td>
+                      {onClosePosition && (
+                        <td className="py-2.5 text-right">
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`Close position for ${p.symbol} (${p.quantity} qty)?`)) {
+                                onClosePosition(p.id);
+                              }
+                            }}
+                            className="rounded bg-red-500/20 px-2 py-0.5 text-[11px] font-bold text-red-400 hover:bg-red-500/30 hover:text-red-300 transition-colors border border-red-500/30"
+                            title={`Close ${p.symbol} position`}
+                          >
+                            Close
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}

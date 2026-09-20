@@ -179,6 +179,43 @@ export default function App() {
     setTrades(tr);
   };
 
+  // Portfolio Reset
+  const handleResetPortfolio = async () => {
+    if (!window.confirm('Reset virtual portfolio to ₹100,000 initial capital?')) {
+      return;
+    }
+    try {
+      await api.resetPortfolio();
+      const [p, pos, tr] = await Promise.all([
+        api.getPortfolio(),
+        api.getPositions(),
+        api.getTrades()
+      ]);
+      setPortfolio(p);
+      setPositions(pos);
+      setTrades(tr);
+    } catch (e) {
+      console.error('Reset portfolio error:', e);
+    }
+  };
+
+  // Close Position
+  const handleClosePosition = async (id: number) => {
+    try {
+      await api.closePosition(id);
+      const [p, pos, tr] = await Promise.all([
+        api.getPortfolio(),
+        api.getPositions(),
+        api.getTrades()
+      ]);
+      setPortfolio(p);
+      setPositions(pos);
+      setTrades(tr);
+    } catch (e) {
+      console.error('Close position error:', e);
+    }
+  };
+
   // CSV Upload handler
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -280,6 +317,16 @@ export default function App() {
             <input type="file" accept=".csv" onChange={handleFileUpload} className="hidden" />
           </label>
 
+          {/* Reset Portfolio */}
+          <button
+            onClick={handleResetPortfolio}
+            title="Reset Virtual Portfolio to ₹100,000"
+            className="flex items-center gap-1.5 rounded-xl border border-dark-600 bg-dark-700 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-dark-600 hover:text-amber-400 hover:border-amber-500/40 transition-colors shadow-sm"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            <span>Reset Portfolio</span>
+          </button>
+
           {/* Global Kill Switch */}
           <button
             onClick={handleToggleKillSwitch}
@@ -335,7 +382,7 @@ export default function App() {
           </div>
 
           {/* Open Positions and Completed Trade History */}
-          <PositionTable positions={positions} trades={trades} />
+          <PositionTable positions={positions} trades={trades} onClosePosition={handleClosePosition} />
         </div>
       ) : (
         <BacktestView symbol={symbol} />
