@@ -10,6 +10,20 @@ def init_db():
     Base.metadata.create_all(bind=engine)
     logger.info("Database tables created.")
 
+    # Ensure positions table has stop_loss and target columns
+    with engine.connect() as conn:
+        try:
+            from sqlalchemy import text
+            result = conn.execute(text("PRAGMA table_info(positions)")).fetchall()
+            existing_cols = [row[1] for row in result]
+            if "stop_loss" not in existing_cols:
+                conn.execute(text("ALTER TABLE positions ADD COLUMN stop_loss FLOAT"))
+            if "target" not in existing_cols:
+                conn.execute(text("ALTER TABLE positions ADD COLUMN target FLOAT"))
+            conn.commit()
+        except Exception as e:
+            logger.warning("Could not verify/alter positions columns: %s", e)
+
     # Initialize default portfolio if not present
     db = SessionLocal()
     try:

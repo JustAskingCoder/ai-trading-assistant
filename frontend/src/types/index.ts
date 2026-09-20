@@ -59,6 +59,8 @@ export interface PositionData {
   quantity: number;
   average_price: number;
   current_price: number;
+  stop_loss?: number | null;
+  target?: number | null;
   unrealized_pnl: number;
   pnl_percentage: number;
 }

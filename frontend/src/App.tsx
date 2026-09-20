@@ -10,7 +10,8 @@ import { PaperOrderModal } from './components/trading/PaperOrderModal';
 import { BacktestView } from './components/backtesting/BacktestView';
 import {
   Play, Pause, Square, RotateCcw, Upload, ShieldAlert,
-  ShieldCheck, Activity, Terminal, RefreshCw, BarChart2
+  ShieldCheck, Activity, Terminal, RefreshCw, BarChart2,
+  CheckCircle2, AlertTriangle, X
 } from 'lucide-react';
 
 export default function App() {
@@ -24,6 +25,20 @@ export default function App() {
   const [activeSignal, setActiveSignal] = useState<Signal | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [orderAlert, setOrderAlert] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+
+  // Auto-dismiss order alert after 8 seconds
+  useEffect(() => {
+    if (orderAlert) {
+      const timer = setTimeout(() => {
+        setOrderAlert(null);
+      }, 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [orderAlert]);
 
   // Simulator state
   const [simRunning, setSimRunning] = useState(false);
@@ -33,6 +48,22 @@ export default function App() {
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [selectedSignalForOrder, setSelectedSignalForOrder] = useState<Signal | null>(null);
   const [activeTab, setActiveTab] = useState<'live' | 'backtest'>('live');
+
+  // Load portfolio and positions data
+  const loadPortfolioData = async () => {
+    try {
+      const [p, pos, tr] = await Promise.all([
+        api.getPortfolio(),
+        api.getPositions(),
+        api.getTrades()
+      ]);
+      setPortfolio(p);
+      setPositions(pos);
+      setTrades(tr);
+    } catch (e) {
+      console.error('Error fetching portfolio data:', e);
+    }
+  };
 
   // Load initial data
   const fetchData = async () => {
@@ -67,7 +98,15 @@ export default function App() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'CANDLE_UPDATE') {
+        if (msg.type === 'AUTO_EXIT_TRIGGERED') {
+          const data = msg.data || msg;
+          const isTarget = data.reason === 'Target Hit';
+          setOrderAlert({
+            type: isTarget ? 'success' : 'error',
+            message: `${isTarget ? '🎯 Target Hit!' : '🛑 Stop Loss Hit!'} Auto-exited ${data.quantity} shares of ${data.symbol} @ ₹${data.exit_price?.toFixed(2)} (${data.pnl >= 0 ? '+' : ''}₹${data.pnl?.toFixed(2)})`
+          });
+          loadPortfolioData();
+        } else if (msg.type === 'CANDLE_UPDATE') {
           const newCandle: CandleData = {
             timestamp: msg.timestamp,
             open: msg.open,
@@ -169,14 +208,7 @@ export default function App() {
 
   const handleOrderSubmit = async (orderData: any) => {
     await api.placePaperOrder(orderData);
-    const [p, pos, tr] = await Promise.all([
-      api.getPortfolio(),
-      api.getPositions(),
-      api.getTrades()
-    ]);
-    setPortfolio(p);
-    setPositions(pos);
-    setTrades(tr);
+    await loadPortfolioData();
   };
 
   // Direct 1-click order execution handler
@@ -198,14 +230,7 @@ export default function App() {
         target: orderData.target,
         order_type: orderData.order_type || 'MARKET'
       });
-      const [p, pos, tr] = await Promise.all([
-        api.getPortfolio(),
-        api.getPositions(),
-        api.getTrades()
-      ]);
-      setPortfolio(p);
-      setPositions(pos);
-      setTrades(tr);
+      await loadPortfolioData();
       return { success: true, data: res };
     } catch (err: any) {
       const errorMsg = err?.response?.data?.detail || err?.message || 'Order execution failed';
@@ -220,14 +245,7 @@ export default function App() {
     }
     try {
       await api.resetPortfolio();
-      const [p, pos, tr] = await Promise.all([
-        api.getPortfolio(),
-        api.getPositions(),
-        api.getTrades()
-      ]);
-      setPortfolio(p);
-      setPositions(pos);
-      setTrades(tr);
+      await loadPortfolioData();
     } catch (e) {
       console.error('Reset portfolio error:', e);
     }
@@ -237,14 +255,7 @@ export default function App() {
   const handleClosePosition = async (id: number) => {
     try {
       await api.closePosition(id);
-      const [p, pos, tr] = await Promise.all([
-        api.getPortfolio(),
-        api.getPositions(),
-        api.getTrades()
-      ]);
-      setPortfolio(p);
-      setPositions(pos);
-      setTrades(tr);
+      await loadPortfolioData();
     } catch (e) {
       console.error('Close position error:', e);
     }
@@ -375,6 +386,33 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Auto-Exit / Order Notification Toast Banner */}
+      {orderAlert && (
+        <div
+          className={`flex items-center justify-between gap-3 rounded-xl p-3.5 shadow-xl border transition-all ${
+            orderAlert.type === 'success'
+              ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-200'
+              : 'bg-rose-950/80 border-rose-500/60 text-rose-200'
+          }`}
+        >
+          <div className="flex items-center gap-2.5 text-sm font-semibold">
+            {orderAlert.type === 'success' ? (
+              <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-400" />
+            ) : (
+              <AlertTriangle className="h-5 w-5 shrink-0 text-rose-400" />
+            )}
+            <span>{orderAlert.message}</span>
+          </div>
+          <button
+            onClick={() => setOrderAlert(null)}
+            className="rounded-lg p-1 text-slate-400 hover:text-white hover:bg-dark-700/50 transition-colors"
+            title="Dismiss notification"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
 
       {/* Portfolio KPIs */}
       <PortfolioCard portfolio={portfolio} />

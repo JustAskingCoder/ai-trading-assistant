@@ -1,4 +1,5 @@
 """Comprehensive test suite for AI Trading Assistant."""
+import asyncio
 import pytest
 import pandas as pd
 import numpy as np
@@ -11,7 +12,7 @@ from backend.paper.paper_broker import PaperBroker, paper_broker
 from backend.backtesting.engine import run_backtest
 from backend.ai.schemas import AIAnalysisResponse, EntryZone
 from backend.database.session import SessionLocal, Base, engine
-from backend.database.models import Portfolio, Position
+from backend.database.models import Portfolio, Position, Trade
 from backend.main import app
 from fastapi.testclient import TestClient
 
@@ -246,4 +247,142 @@ def test_close_position_api():
         # Reset portfolio cleanly after test
         paper_broker.reset_portfolio(db)
         db.close()
+
+
+def test_stop_loss_hit_auto_exit():
+    """Verify when position opened with stop_loss=3000 and target=3100, update_market_price with 2990 triggers Stop Loss Hit and closes position."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        # Open position with SL=3000, Target=3100
+        order_res = paper_broker.place_order(
+            symbol="TEST_SL_HIT",
+            side="BUY",
+            quantity=10,
+            price=3050.0,
+            stop_loss=3000.0,
+            target=3100.0,
+            db=db
+        )
+        assert order_res["status"] == "FILLED"
+
+        # Check position in DB
+        pos = db.query(Position).filter(Position.symbol == "TEST_SL_HIT").first()
+        assert pos is not None
+        assert pos.stop_loss == 3000.0
+        assert pos.target == 3100.0
+
+        # Check GET /api/positions includes stop_loss and target
+        client = TestClient(app)
+        api_res = client.get("/api/positions")
+        assert api_res.status_code == 200
+        positions_data = api_res.json()
+        matching = [p for p in positions_data if p["symbol"] == "TEST_SL_HIT"]
+        assert len(matching) == 1
+        assert matching[0]["stop_loss"] == 3000.0
+        assert matching[0]["target"] == 3100.0
+
+        # Current price falls to 2990 (<= 3000 SL)
+        triggers = paper_broker.update_market_price("TEST_SL_HIT", 2990.0, db=db)
+        assert len(triggers) == 1
+        trig = triggers[0]
+        assert trig["type"] == "AUTO_EXIT"
+        assert trig["symbol"] == "TEST_SL_HIT"
+        assert trig["side"] == "BUY"
+        assert trig["quantity"] == 10
+        assert trig["exit_price"] == 2990.0
+        assert trig["stop_loss"] == 3000.0
+        assert trig["target"] == 3100.0
+        assert trig["reason"] == "Stop Loss Hit"
+        assert trig["pnl"] == -600.0  # (2990 - 3050) * 10
+
+        # Verify position is closed
+        closed_pos = db.query(Position).filter(Position.symbol == "TEST_SL_HIT").first()
+        assert closed_pos is None
+
+        # Verify trade recorded with Bracket Auto-Exit (Stop Loss Hit)
+        trade = db.query(Trade).filter(Trade.symbol == "TEST_SL_HIT").order_by(Trade.id.desc()).first()
+        assert trade is not None
+        assert trade.exit_price == 2990.0
+        assert trade.strategy == "Bracket Auto-Exit (Stop Loss Hit)"
+        assert trade.pnl == -600.0
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_target_hit_auto_exit():
+    """Verify when position opened with target=3100, update_market_price with 3105 triggers Target Hit and closes position."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        # Open position with SL=3000, Target=3100
+        order_res = paper_broker.place_order(
+            symbol="TEST_TGT_HIT",
+            side="BUY",
+            quantity=5,
+            price=3050.0,
+            stop_loss=3000.0,
+            target=3100.0,
+            db=db
+        )
+        assert order_res["status"] == "FILLED"
+
+        # Check position in DB
+        pos = db.query(Position).filter(Position.symbol == "TEST_TGT_HIT").first()
+        assert pos is not None
+        assert pos.target == 3100.0
+
+        # Current price rises to 3105 (>= 3100 Target)
+        triggers = paper_broker.update_market_price("TEST_TGT_HIT", 3105.0, db=db)
+        assert len(triggers) == 1
+        trig = triggers[0]
+        assert trig["type"] == "AUTO_EXIT"
+        assert trig["symbol"] == "TEST_TGT_HIT"
+        assert trig["reason"] == "Target Hit"
+        assert trig["exit_price"] == 3105.0
+        assert trig["pnl"] == 275.0  # (3105 - 3050) * 5
+
+        # Verify position is closed
+        closed_pos = db.query(Position).filter(Position.symbol == "TEST_TGT_HIT").first()
+        assert closed_pos is None
+
+        # Verify trade recorded with Bracket Auto-Exit (Target Hit)
+        trade = db.query(Trade).filter(Trade.symbol == "TEST_TGT_HIT").order_by(Trade.id.desc()).first()
+        assert trade is not None
+        assert trade.exit_price == 3105.0
+        assert trade.strategy == "Bracket Auto-Exit (Target Hit)"
+        assert trade.pnl == 275.0
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_market_simulator_auto_exit_broadcast(sample_df):
+    from backend.data.market_simulator import simulator
+    db = SessionLocal()
+    q = simulator.subscribe()
+    try:
+        paper_broker.reset_portfolio(db)
+        first_close = float(sample_df.iloc[0]["close"])
+        # Place order with SL higher than first candle close to trigger immediate SL exit
+        paper_broker.place_order("TEST", "BUY", 10, first_close + 10.0, stop_loss=first_close + 5.0, target=first_close + 50.0, db=db)
+
+        simulator.load_dataset(sample_df)
+
+        exits = paper_broker.update_market_price("TEST", first_close, db=db)
+        assert len(exits) == 1
+        assert exits[0]["reason"] == "Stop Loss Hit"
+
+        await simulator.broadcast({"type": "AUTO_EXIT_TRIGGERED", "data": exits[0]})
+        msg = await asyncio.wait_for(q.get(), timeout=2.0)
+        assert msg["type"] == "AUTO_EXIT_TRIGGERED"
+        assert msg["data"]["reason"] == "Stop Loss Hit"
+    finally:
+        simulator.unsubscribe(q)
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
 

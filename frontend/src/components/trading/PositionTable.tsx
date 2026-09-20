@@ -30,6 +30,8 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                   <th className="py-2">Qty</th>
                   <th className="py-2">Avg Price</th>
                   <th className="py-2">LTP</th>
+                  <th className="py-2">Stop Loss</th>
+                  <th className="py-2">Target</th>
                   <th className="py-2 text-right">Unrealized P&L</th>
                   {onClosePosition && <th className="py-2 text-right">Action</th>}
                 </tr>
@@ -48,6 +50,16 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       <td className="py-2.5 font-medium">{p.quantity}</td>
                       <td className="py-2.5 text-slate-300">₹{p.average_price.toFixed(2)}</td>
                       <td className="py-2.5 text-white font-medium">₹{p.current_price.toFixed(2)}</td>
+                      <td className="py-2.5">
+                        <span className="text-red-400 font-semibold">
+                          {p.stop_loss ? `₹${p.stop_loss.toFixed(2)}` : '—'}
+                        </span>
+                      </td>
+                      <td className="py-2.5">
+                        <span className="text-emerald-400 font-semibold">
+                          {p.target ? `₹${p.target.toFixed(2)}` : '—'}
+                        </span>
+                      </td>
                       <td className={`py-2.5 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>
                         {isProfit ? '+' : ''}₹{p.unrealized_pnl.toFixed(2)} ({isProfit ? '+' : ''}{p.pnl_percentage}%)
                       </td>

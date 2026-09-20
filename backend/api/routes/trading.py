@@ -81,6 +81,8 @@ def get_positions(db: Session = Depends(get_db)):
         "quantity": p.quantity,
         "average_price": p.average_price,
         "current_price": p.current_price,
+        "stop_loss": p.stop_loss,
+        "target": p.target,
         "unrealized_pnl": round(p.unrealized_pnl, 2),
         "pnl_percentage": round((p.current_price - p.average_price) / p.average_price * 100.0, 2) if p.average_price > 0 else 0.0
     } for p in positions]

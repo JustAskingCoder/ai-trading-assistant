@@ -43,6 +43,9 @@ class MarketSimulator:
             except Exception:
                 pass
 
+    async def broadcast(self, message: Dict[str, Any]):
+        await self._broadcast(message)
+
     def start(self, speed: float = 1.0, loop: Optional[asyncio.AbstractEventLoop] = None):
         if self.data is None or self.data.empty:
             raise ValueError("No market data loaded in simulator.")
@@ -103,7 +106,13 @@ class MarketSimulator:
                 close_p = float(candle["close"])
 
                 # Update paper positions
-                paper_broker.update_market_price(symbol, close_p)
+                auto_exits = paper_broker.update_market_price(symbol, close_p)
+                if auto_exits:
+                    for exit_event in auto_exits:
+                        await manager.broadcast({
+                            'type': 'AUTO_EXIT_TRIGGERED',
+                            'data': exit_event
+                        })
 
                 # Detect patterns and evaluate strategies
                 current_slice = self.data.iloc[:self.current_index + 1]
@@ -155,3 +164,4 @@ class MarketSimulator:
 
 
 simulator = MarketSimulator()
+manager = simulator

@@ -108,6 +108,8 @@ class PaperBroker:
                     pos.quantity = new_qty
                     pos.average_price = round(total_val / new_qty, 2)
                     pos.current_price = price
+                    pos.stop_loss = stop_loss
+                    pos.target = target
                 else:
                     pos = Position(
                         symbol=symbol,
@@ -115,7 +117,9 @@ class PaperBroker:
                         quantity=quantity,
                         average_price=price,
                         current_price=price,
-                        unrealized_pnl=0.0
+                        unrealized_pnl=0.0,
+                        stop_loss=stop_loss,
+                        target=target
                     )
                     db.add(pos)
 
@@ -188,16 +192,59 @@ class PaperBroker:
             portfolio = self.get_portfolio(db)
             positions = db.query(Position).filter(Position.symbol == symbol).all()
 
-            total_unrealized = 0.0
-            for pos in positions:
+            for pos in list(positions):
                 pos.current_price = current_price
                 if pos.side == "BUY":
                     pos.unrealized_pnl = round((current_price - pos.average_price) * pos.quantity, 2)
                 else:
                     pos.unrealized_pnl = round((pos.average_price - current_price) * pos.quantity, 2)
-                total_unrealized += pos.unrealized_pnl
 
-            portfolio.unrealized_pnl = total_unrealized
+                reason = None
+                if pos.side == 'BUY':
+                    if pos.stop_loss is not None and current_price <= pos.stop_loss:
+                        reason = 'Stop Loss Hit'
+                    elif pos.target is not None and current_price >= pos.target:
+                        reason = 'Target Hit'
+                elif pos.side == 'SELL':
+                    if pos.stop_loss is not None and current_price >= pos.stop_loss:
+                        reason = 'Stop Loss Hit'
+                    elif pos.target is not None and current_price <= pos.target:
+                        reason = 'Target Hit'
+
+                if reason is not None:
+                    exit_record = {
+                        'type': 'AUTO_EXIT',
+                        'symbol': pos.symbol,
+                        'side': pos.side,
+                        'quantity': pos.quantity,
+                        'exit_price': current_price,
+                        'stop_loss': pos.stop_loss,
+                        'target': pos.target,
+                        'reason': reason,
+                        'pnl': round((current_price - pos.average_price) * pos.quantity, 2) if pos.side == 'BUY' else round((pos.average_price - current_price) * pos.quantity, 2)
+                    }
+                    triggers.append(exit_record)
+
+                    # Trigger market exit order
+                    self.place_order(
+                        symbol=pos.symbol,
+                        side='SELL' if pos.side == 'BUY' else 'BUY',
+                        quantity=pos.quantity,
+                        price=current_price,
+                        stop_loss=pos.stop_loss,
+                        target=pos.target,
+                        order_type='MARKET',
+                        db=db
+                    )
+
+                    # Update the last created trade's strategy to f'Bracket Auto-Exit ({reason})'
+                    last_trade = db.query(Trade).filter(Trade.symbol == pos.symbol).order_by(Trade.id.desc()).first()
+                    if last_trade:
+                        last_trade.strategy = f'Bracket Auto-Exit ({reason})'
+                        db.commit()
+
+            remaining_positions = db.query(Position).all()
+            portfolio.unrealized_pnl = round(sum(p.unrealized_pnl for p in remaining_positions), 2)
             db.commit()
             return triggers
         finally:

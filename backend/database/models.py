@@ -129,6 +129,8 @@ class Position(Base):
     average_price = Column(Float, nullable=False)
     current_price = Column(Float, nullable=False)
     unrealized_pnl = Column(Float, default=0.0)
+    stop_loss = Column(Float, nullable=True)
+    target = Column(Float, nullable=True)
 
 
 class Trade(Base):
