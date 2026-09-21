@@ -1324,7 +1324,7 @@ def test_watchlist_actionable_trade_brackets():
             assert q["entry_price"] > 0
             assert q["stop_loss"] > 0
             assert q["target"] > 0
-            assert q["risk_reward"] > 0
+            assert q["risk_reward"] >= 0.8
             assert q["target_profit"] > 0
             assert q["max_risk"] > 0
             assert isinstance(q["reason"], str) and len(q["reason"]) > 0
@@ -1337,6 +1337,69 @@ def test_watchlist_actionable_trade_brackets():
             elif q["action"] == "SELL":
                 assert q["stop_loss"] > q["entry_price"], f"SELL stop loss ({q['stop_loss']}) must be > entry price ({q['entry_price']})"
                 assert q["target"] < q["entry_price"], f"SELL target ({q['target']}) must be < entry price ({q['entry_price']})"
+
+
+def test_no_fake_signals_when_strategies_hold_and_rr_guaranteed():
+    """Verify that when strategies return no signal, signal is HOLD, action is WAIT, and R:R >= 0.8."""
+    from unittest.mock import MagicMock, patch
+    from backend.data.live_market_service import LiveMarketService
+
+    service = LiveMarketService()
+    dates = pd.date_range("2026-09-21 09:15", periods=30, freq="5min")
+    mock_df = pd.DataFrame({
+        "Open": [100.0] * 30,
+        "High": [100.2] * 30,
+        "Low": [99.8] * 30,
+        "Close": [100.0] * 30,
+        "Volume": [1000] * 30,
+        "Dividends": [0.0] * 30,
+        "Stock Splits": [0.0] * 30
+    }, index=dates)
+
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_inst = MagicMock()
+        mock_inst.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_inst
+
+        quotes = service.get_watchlist_quotes(["RELIANCE", "USDINR"])
+        for q in quotes:
+            assert q["signal"] == "HOLD"
+            assert q["action"] == "WAIT"
+            assert q["strategy"] == "Consolidation"
+            assert q["risk_reward"] >= 0.8
+            assert "Consolidation" in q["reason"]
+
+    # Test BUY signal generation when strategy evaluates BUY
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_inst = MagicMock()
+        mock_inst.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_inst
+
+        with patch.object(service.strategies[0], "evaluate", return_value={"strategy": "MockStrat", "signal": "BUY", "confidence": 0.85, "reason": "Mock breakout"}):
+            buy_quotes = service.get_watchlist_quotes(["RELIANCE"])
+            assert len(buy_quotes) == 1
+            bq = buy_quotes[0]
+            assert bq["signal"] == "BUY"
+            assert bq["action"] == "BUY"
+            assert bq["risk_reward"] >= 0.8
+            assert bq["stop_loss"] < bq["entry_price"]
+            assert bq["target"] > bq["entry_price"]
+
+    # Test SELL signal generation when strategy evaluates SELL
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_inst = MagicMock()
+        mock_inst.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_inst
+
+        with patch.object(service.strategies[0], "evaluate", return_value={"strategy": "MockStrat", "signal": "SELL", "confidence": 0.85, "reason": "Mock breakdown"}):
+            sell_quotes = service.get_watchlist_quotes(["RELIANCE"])
+            assert len(sell_quotes) == 1
+            sq = sell_quotes[0]
+            assert sq["signal"] == "SELL"
+            assert sq["action"] == "SELL"
+            assert sq["risk_reward"] >= 0.8
+            assert sq["stop_loss"] > sq["entry_price"]
+            assert sq["target"] < sq["entry_price"]
 
 
 def test_api_market_watchlist_endpoint():

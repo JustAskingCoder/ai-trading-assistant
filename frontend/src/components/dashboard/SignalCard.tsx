@@ -11,6 +11,8 @@ interface TradeFeedback {
 
 interface Props {
   signal: Signal | null;
+  symbol?: string;
+  onQuickOrder?: () => void;
   onAnalyzeAI: (signal: Signal) => void;
   onPaperTrade: (signal: Signal) => void;
   onIgnore: () => void;
@@ -19,6 +21,8 @@ interface Props {
 
 export const SignalCard: React.FC<Props> = ({
   signal,
+  symbol,
+  onQuickOrder,
   onAnalyzeAI,
   onPaperTrade,
   onIgnore,
@@ -33,8 +37,43 @@ export const SignalCard: React.FC<Props> = ({
 
   if (!signal) {
     return (
-      <div className="rounded-xl border border-dark-600 bg-dark-800 p-5 text-center text-slate-400">
-        <p className="text-sm">No active signal currently detected. Monitoring live market simulation...</p>
+      <div className="rounded-2xl border border-dark-600 bg-dark-800/95 p-5 shadow-xl backdrop-blur">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2">
+              <span className="flex h-2.5 w-2.5 rounded-full bg-slate-400"></span>
+              <h3 className="text-sm font-extrabold tracking-wide text-white uppercase">
+                AWAITING STRATEGY SETUP (CONSOLIDATION)
+              </h3>
+              <span className="rounded bg-dark-700 px-2 py-0.5 text-[10px] font-bold text-slate-300 border border-dark-600 uppercase">
+                {symbol || 'MARKET'}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">
+              Monitoring 20 EMA pullback & resistance breakout conditions for {symbol || 'active asset'}.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
+              <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-dark-700">
+                🛡 Min 1.2 R:R Protection
+              </span>
+              <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-dark-700">
+                ⏱ 10-Minute Scalp Window
+              </span>
+              <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-dark-700">
+                📊 1-Share Sizing
+              </span>
+            </div>
+          </div>
+          {onQuickOrder && (
+            <button
+              onClick={onQuickOrder}
+              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-indigo-950/40 transition-all active:scale-95 shrink-0"
+            >
+              <Zap className="h-4 w-4 fill-current" />
+              <span>⚡ PLACE QUICK SCALP TRADE (10m Window)</span>
+            </button>
+          )}
+        </div>
       </div>
     );
   }

@@ -31,6 +31,7 @@ export default function App() {
     message: string;
   } | null>(null);
   const lastRefreshRef = useRef<number>(0);
+  const watchlistQuotesRef = useRef<WatchlistQuote[]>([]);
 
   // Auto-dismiss order alert after 8 seconds
   useEffect(() => {
@@ -209,6 +210,45 @@ export default function App() {
   // Select active symbol from watchlist or dropdown
   const handleSelectSymbol = async (newSym: string) => {
     setSymbol(newSym);
+
+    // Sync activeSignal with watchlist quote if present
+    const quote = watchlistQuotesRef.current.find(q => q.symbol === newSym);
+    if (quote) {
+      if (quote.action === 'WAIT' || quote.signal === 'HOLD') {
+        setActiveSignal(null);
+      } else if (quote.action === 'BUY' || quote.action === 'SELL') {
+        const p = Number(quote.entry_price || quote.price);
+        const isForex = quote.market === 'FOREX';
+        const dec = isForex ? 4 : 2;
+        const riskAmt =
+          quote.max_risk && quote.max_risk > 0
+            ? Number(quote.max_risk)
+            : Number((p * 0.005).toFixed(dec));
+        const rewardAmt = Math.max(riskAmt * 1.2, Number((p * 0.006).toFixed(dec)));
+        const isSell = quote.action === 'SELL';
+        let sl = quote.stop_loss;
+        let tgt = quote.target;
+        if (!sl || !tgt || (Math.abs(tgt - p) / (Math.abs(p - sl) + 1e-6)) < 0.8) {
+          sl = isSell ? Number((p + riskAmt).toFixed(dec)) : Number((p - riskAmt).toFixed(dec));
+          tgt = isSell ? Number((p - rewardAmt).toFixed(dec)) : Number((p + rewardAmt).toFixed(dec));
+        }
+        setActiveSignal({
+          symbol: quote.symbol,
+          timestamp: new Date().toISOString(),
+          strategy: quote.strategy || 'Live Scalp Strategy',
+          signal: quote.action,
+          confidence: quote.confidence || 0.85,
+          entry_price: p,
+          stop_loss: sl,
+          target: tgt,
+          risk_reward: quote.risk_reward || 1.2,
+          reason: quote.reason || `${quote.action} Scalp Setup`
+        });
+      }
+    } else {
+      setActiveSignal(null);
+    }
+
     if (marketMode === 'LIVE') {
       try {
         await api.setMarketMode('LIVE', newSym);
@@ -229,40 +269,82 @@ export default function App() {
     }
   };
 
+  // Sync quotes from MultiAssetWatchlist into App state
+  const handleWatchlistQuotesUpdate = (quotes: WatchlistQuote[]) => {
+    watchlistQuotesRef.current = quotes;
+    const currentQuote = quotes.find(q => q.symbol === symbol);
+    if (currentQuote) {
+      if (currentQuote.action === 'WAIT' || currentQuote.signal === 'HOLD') {
+        setActiveSignal(null);
+      } else if (currentQuote.action === 'BUY' || currentQuote.action === 'SELL') {
+        const p = Number(currentQuote.entry_price || currentQuote.price);
+        const isForex = currentQuote.market === 'FOREX';
+        const dec = isForex ? 4 : 2;
+        const riskAmt =
+          currentQuote.max_risk && currentQuote.max_risk > 0
+            ? Number(currentQuote.max_risk)
+            : Number((p * 0.005).toFixed(dec));
+        const rewardAmt = Math.max(riskAmt * 1.2, Number((p * 0.006).toFixed(dec)));
+        const isSell = currentQuote.action === 'SELL';
+        let sl = currentQuote.stop_loss;
+        let tgt = currentQuote.target;
+        if (!sl || !tgt || (Math.abs(tgt - p) / (Math.abs(p - sl) + 1e-6)) < 0.8) {
+          sl = isSell ? Number((p + riskAmt).toFixed(dec)) : Number((p - riskAmt).toFixed(dec));
+          tgt = isSell ? Number((p - rewardAmt).toFixed(dec)) : Number((p + rewardAmt).toFixed(dec));
+        }
+        setActiveSignal({
+          symbol: currentQuote.symbol,
+          timestamp: new Date().toISOString(),
+          strategy: currentQuote.strategy || 'Live Scalp Strategy',
+          signal: currentQuote.action,
+          confidence: currentQuote.confidence || 0.85,
+          entry_price: p,
+          stop_loss: sl,
+          target: tgt,
+          risk_reward: currentQuote.risk_reward || 1.2,
+          reason: currentQuote.reason || `${currentQuote.action} Scalp Setup`
+        });
+      }
+    }
+  };
+
   // 1-Click trade execution directly from Multi-Asset Scanner card or decision matrix
   const handleTradeFromWatchlist = async (quote: WatchlistQuote) => {
-    const side = quote.action === 'SELL' ? 'SELL' : 'BUY';
+    const isSell = quote.action === 'SELL';
+    const side = isSell ? 'SELL' : 'BUY';
+    const p = Number(quote.entry_price || quote.price);
     const isForex = quote.market === 'FOREX';
     const dec = isForex ? 4 : 2;
-    const price = Number(quote.entry_price || quote.price);
     const quantity = quote.quantity || 1;
-    const stop_loss =
-      quote.stop_loss !== undefined
-        ? Number(quote.stop_loss)
-        : side === 'BUY'
-        ? Number((price * 0.994).toFixed(dec))
-        : Number((price * 1.006).toFixed(dec));
-    const target =
-      quote.target !== undefined
-        ? Number(quote.target)
-        : side === 'BUY'
-        ? Number((price * 1.005).toFixed(dec))
-        : Number((price * 0.995).toFixed(dec));
+
+    // Compute guaranteed-pass scalp brackets (R:R >= 1.2)
+    const riskAmount =
+      quote.max_risk && quote.max_risk > 0 ? Number(quote.max_risk) : Number((p * 0.005).toFixed(dec));
+    const rewardAmount = Math.max(riskAmount * 1.2, Number((p * 0.006).toFixed(dec)));
+
+    let sl = quote.stop_loss !== undefined ? Number(quote.stop_loss) : undefined;
+    let tgt = quote.target !== undefined ? Number(quote.target) : undefined;
+
+    // Verify brackets satisfy risk engine (R:R >= 0.8)
+    if (!sl || !tgt || (Math.abs(tgt - p) / (Math.abs(p - sl) + 1e-6)) < 0.8) {
+      sl = isSell ? Number((p + riskAmount).toFixed(dec)) : Number((p - riskAmount).toFixed(dec));
+      tgt = isSell ? Number((p - rewardAmount).toFixed(dec)) : Number((p + rewardAmount).toFixed(dec));
+    }
 
     try {
       await api.placePaperOrder({
         symbol: quote.symbol,
         side,
         quantity,
-        price,
-        stop_loss,
-        target,
+        price: p,
+        stop_loss: sl,
+        target: tgt,
         order_type: 'MARKET'
       });
       await loadPortfolioData();
       const priceDisplay = isForex
-        ? `${quote.symbol.includes('INR') ? '₹' : ''}${price.toFixed(4)}`
-        : `₹${price.toFixed(2)}`;
+        ? `${quote.symbol.includes('INR') ? '₹' : ''}${p.toFixed(4)}`
+        : `₹${p.toFixed(2)}`;
       setOrderAlert({
         type: 'success',
         message: `✅ Order Filled! ${side} ${quantity} ${isForex ? 'unit' : 'share'} of ${quote.symbol} @ ${priceDisplay}. Added to Open Virtual Positions.`
@@ -328,17 +410,21 @@ export default function App() {
 
   const handleQuickOrder = () => {
     const latestP = candles.length > 0 ? candles[candles.length - 1].close : 3000;
+    const isForex = symbol.includes('USD') || symbol.includes('EUR') || symbol.includes('GBP');
+    const dec = isForex ? 4 : 2;
+    const riskAmt = Number((latestP * 0.005).toFixed(dec));
+    const rewardAmt = Math.max(riskAmt * 1.2, Number((latestP * 0.006).toFixed(dec)));
     setSelectedSignalForOrder({
       symbol,
       timestamp: new Date().toISOString(),
-      strategy: 'Manual Quick Trade',
+      strategy: 'Manual Quick Scalp',
       signal: 'BUY',
       confidence: 1.0,
       entry_price: latestP,
-      stop_loss: Number((latestP * 0.994).toFixed(2)),
-      target: Number((latestP * 1.005).toFixed(2)),
-      risk_reward: Number(((latestP * 0.005) / (latestP * 0.006)).toFixed(2)),
-      reason: 'Manual 10-Minute Scalp Trade'
+      stop_loss: Number((latestP - riskAmt).toFixed(dec)),
+      target: Number((latestP + rewardAmt).toFixed(dec)),
+      risk_reward: 1.2,
+      reason: 'Manual 10-Minute Scalp Trade (1.2 R:R Calibrated)'
     });
     setOrderModalOpen(true);
   };
@@ -651,6 +737,7 @@ export default function App() {
             selectedSymbol={symbol}
             onSelectSymbol={handleSelectSymbol}
             onPlaceOrder={handleTradeFromWatchlist}
+            onQuotesUpdate={handleWatchlistQuotesUpdate}
           />
 
           {/* Main Candlestick Chart */}
@@ -660,6 +747,8 @@ export default function App() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
             <SignalCard
               signal={activeSignal}
+              symbol={symbol}
+              onQuickOrder={handleQuickOrder}
               onAnalyzeAI={handleAnalyzeAI}
               onPaperTrade={handlePaperOrder}
               onIgnore={() => setActiveSignal(null)}

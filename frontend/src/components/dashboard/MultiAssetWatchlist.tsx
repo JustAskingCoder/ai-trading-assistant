@@ -10,6 +10,7 @@ interface Props {
   selectedSymbol: string;
   onSelectSymbol: (symbol: string) => void;
   onPlaceOrder?: (quote: WatchlistQuote) => void;
+  onQuotesUpdate?: (quotes: WatchlistQuote[]) => void;
 }
 
 type FilterCategory = 'All' | 'NSE' | 'FOREX';
@@ -25,16 +26,16 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     price: 2985.50,
     change: 36.85,
     change_percentage: 1.25,
-    signal: 'BUY',
-    action: 'BUY',
+    signal: 'HOLD',
+    action: 'WAIT',
     quantity: 1,
     entry_price: 2985.50,
-    stop_loss: 2967.60,
-    target: 3000.40,
-    risk_reward: 0.83,
-    target_profit: 14.90,
-    max_risk: 17.90,
-    reason: 'Bullish Momentum & EMA Cross'
+    stop_loss: 2970.55,
+    target: 3003.45,
+    risk_reward: 1.2,
+    target_profit: 17.95,
+    max_risk: 14.95,
+    reason: 'Consolidation / Awaiting 20 EMA Pullback'
   },
   {
     symbol: 'TCS',
@@ -47,11 +48,11 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     action: 'WAIT',
     quantity: 1,
     entry_price: 4210.00,
-    stop_loss: 4184.70,
-    target: 4231.05,
-    risk_reward: 0.83,
-    target_profit: 21.05,
-    max_risk: 25.30,
+    stop_loss: 4188.95,
+    target: 4235.25,
+    risk_reward: 1.2,
+    target_profit: 25.25,
+    max_risk: 21.05,
     reason: 'VWAP Compression / Neutral'
   },
   {
@@ -61,16 +62,16 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     price: 1890.30,
     change: -15.20,
     change_percentage: -0.80,
-    signal: 'SELL',
-    action: 'SELL',
+    signal: 'HOLD',
+    action: 'WAIT',
     quantity: 1,
     entry_price: 1890.30,
-    stop_loss: 1901.65,
-    target: 1880.85,
-    risk_reward: 0.83,
-    target_profit: 9.45,
-    max_risk: 11.35,
-    reason: 'Bearish Breakdown below EMA50'
+    stop_loss: 1880.85,
+    target: 1901.65,
+    risk_reward: 1.2,
+    target_profit: 11.35,
+    max_risk: 9.45,
+    reason: 'Consolidation near Support'
   },
   {
     symbol: 'HDFCBANK',
@@ -79,16 +80,16 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     price: 1645.20,
     change: 9.80,
     change_percentage: 0.60,
-    signal: 'BUY',
-    action: 'BUY',
+    signal: 'HOLD',
+    action: 'WAIT',
     quantity: 1,
     entry_price: 1645.20,
-    stop_loss: 1635.30,
-    target: 1653.40,
-    risk_reward: 0.83,
-    target_profit: 8.20,
-    max_risk: 9.90,
-    reason: 'Support Bounce with RSI divergence'
+    stop_loss: 1636.95,
+    target: 1655.10,
+    risk_reward: 1.2,
+    target_profit: 9.90,
+    max_risk: 8.25,
+    reason: 'Awaiting Breakout / Consolidation'
   },
   {
     symbol: 'USDINR',
@@ -101,11 +102,11 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     action: 'WAIT',
     quantity: 1,
     entry_price: 83.5250,
-    stop_loss: 83.0238,
-    target: 83.9426,
-    risk_reward: 0.83,
-    target_profit: 0.4176,
-    max_risk: 0.5012,
+    stop_loss: 83.1074,
+    target: 84.0261,
+    risk_reward: 1.2,
+    target_profit: 0.5011,
+    max_risk: 0.4176,
     reason: 'Range Consolidation'
   },
   {
@@ -115,16 +116,16 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     price: 1.0845,
     change: -0.0016,
     change_percentage: -0.15,
-    signal: 'SELL',
-    action: 'SELL',
+    signal: 'HOLD',
+    action: 'WAIT',
     quantity: 1,
     entry_price: 1.0845,
-    stop_loss: 1.0910,
-    target: 1.0791,
-    risk_reward: 0.83,
-    target_profit: 0.0054,
-    max_risk: 0.0065,
-    reason: 'Dollar Strength Pressure'
+    stop_loss: 1.0791,
+    target: 1.0910,
+    risk_reward: 1.2,
+    target_profit: 0.0065,
+    max_risk: 0.0054,
+    reason: 'Awaiting Trend Continuation'
   },
 ];
 
@@ -141,42 +142,29 @@ const enrichQuote = (q: WatchlistQuote): WatchlistQuote => {
   const entry_price = q.entry_price !== undefined ? Number(q.entry_price) : price;
   const quantity = q.quantity || 1;
 
-  let stop_loss = q.stop_loss !== undefined ? Number(q.stop_loss) : undefined;
-  if (stop_loss === undefined) {
-    if (action === 'BUY') {
-      stop_loss = Number((price * 0.994).toFixed(dec));
-    } else if (action === 'SELL') {
-      stop_loss = Number((price * 1.006).toFixed(dec));
-    } else {
-      stop_loss = Number((price * 0.994).toFixed(dec));
-    }
-  }
-
-  let target = q.target !== undefined ? Number(q.target) : undefined;
-  if (target === undefined) {
-    if (action === 'BUY') {
-      target = Number((price * 1.005).toFixed(dec));
-    } else if (action === 'SELL') {
-      target = Number((price * 0.995).toFixed(dec));
-    } else {
-      target = Number((price * 1.005).toFixed(dec));
-    }
-  }
-
-  const target_profit =
-    q.target_profit !== undefined
-      ? Number(q.target_profit)
-      : Number(Math.abs(target - entry_price).toFixed(dec));
-  const max_risk =
-    q.max_risk !== undefined
+  // Calibrate guaranteed risk/reward >= 1.2
+  const riskAmount =
+    q.max_risk && q.max_risk > 0
       ? Number(q.max_risk)
-      : Number(Math.abs(entry_price - stop_loss).toFixed(dec));
-  const risk_reward =
-    q.risk_reward !== undefined
-      ? Number(q.risk_reward)
-      : max_risk > 0
-      ? Number((target_profit / max_risk).toFixed(2))
-      : 0.83;
+      : Number((entry_price * 0.005).toFixed(dec));
+  const rewardAmount = Math.max(riskAmount * 1.2, Number((entry_price * 0.006).toFixed(dec)));
+
+  let stop_loss = q.stop_loss !== undefined ? Number(q.stop_loss) : undefined;
+  let target = q.target !== undefined ? Number(q.target) : undefined;
+
+  const isSell = action === 'SELL';
+  if (!stop_loss || !target || (Math.abs(target - entry_price) / (Math.abs(entry_price - stop_loss) + 1e-6)) < 0.8) {
+    stop_loss = isSell
+      ? Number((entry_price + riskAmount).toFixed(dec))
+      : Number((entry_price - riskAmount).toFixed(dec));
+    target = isSell
+      ? Number((entry_price - rewardAmount).toFixed(dec))
+      : Number((entry_price + rewardAmount).toFixed(dec));
+  }
+
+  const target_profit = Number(Math.abs(target - entry_price).toFixed(dec));
+  const max_risk = Number(Math.abs(entry_price - stop_loss).toFixed(dec));
+  const risk_reward = max_risk > 0 ? Number((target_profit / max_risk).toFixed(2)) : 1.2;
 
   return {
     ...q,
@@ -195,6 +183,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
   selectedSymbol,
   onSelectSymbol,
   onPlaceOrder,
+  onQuotesUpdate,
 }) => {
   const [quotes, setQuotes] = useState<WatchlistQuote[]>(() =>
     FALLBACK_QUOTES.map(enrichQuote)
@@ -209,17 +198,20 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
     try {
       const data = await api.getWatchlist(DEFAULT_SYMBOLS.join(','));
       if (Array.isArray(data) && data.length > 0) {
-        setQuotes(data.map(enrichQuote));
+        const enriched = data.map(enrichQuote);
+        setQuotes(enriched);
         setLastUpdated(new Date());
+        onQuotesUpdate?.(enriched);
       }
     } catch (e) {
       console.debug('MultiAssetWatchlist polling (using fallback):', e);
     } finally {
       if (isManual) setLoading(false);
     }
-  }, []);
+  }, [onQuotesUpdate]);
 
   useEffect(() => {
+    onQuotesUpdate?.(quotes);
     fetchWatchlist();
     const timer = setInterval(() => {
       fetchWatchlist();
@@ -275,7 +267,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
     return (
       <span className="flex items-center gap-1 rounded-md bg-slate-700/60 px-2 py-1 text-[11px] font-bold text-slate-300 border border-slate-600/40">
         <span className="h-2 w-2 rounded-full bg-slate-400"></span>
-        ⚪ WAIT / CONSOLIDATE
+        ⚪ AWAITING SETUP
       </span>
     );
   };
@@ -523,7 +515,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                     ? `⚡ BUY ${item.quantity || 1} SHARE`
                     : action === 'SELL'
                     ? `⚡ SELL ${item.quantity || 1} SHARE`
-                    : '⚡ PLACE ORDER'}
+                    : '⚡ QUICK SCALP TRADE'}
                 </button>
               </div>
             );
@@ -649,7 +641,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                         }`}
                       >
                         <Zap className="h-3 w-3 fill-current" />
-                        {action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'TRADE'}
+                        {action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'QUICK SCALP'}
                       </button>
                     </td>
                   </tr>

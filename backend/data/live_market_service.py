@@ -284,7 +284,7 @@ class LiveMarketService:
             atr_raw = last_candle.get("atr")
             atr = float(atr_raw) if pd.notnull(atr_raw) and float(atr_raw) > 0 else (close_p * 0.005)
 
-            # Evaluate quick signal ('BUY', 'SELL', or 'HOLD')
+            # Evaluate signal strictly through quantitative strategy engine
             signal = "HOLD"
             strat_sig = None
             if len(ind_df) >= 25:
@@ -295,20 +295,13 @@ class LiveMarketService:
                         signal = sig["signal"]
                         break
 
-            if signal == "HOLD":
-                rsi = last_candle.get("rsi")
-                ema20 = last_candle.get("ema20")
-                ema50 = last_candle.get("ema50")
-                if rsi is not None and pd.notnull(rsi):
-                    if rsi < 35.0 or (ema20 is not None and ema50 is not None and ema20 > ema50 and close_p > ema20):
-                        signal = "BUY"
-                    elif rsi > 65.0 or (ema20 is not None and ema50 is not None and ema20 < ema50 and close_p < ema20):
-                        signal = "SELL"
-
-            # Derive actionable trade parameters
+            # Derive actionable trade parameters with guaranteed structural brackets
             entry_price = round(close_p, dec)
             quantity = 1
             min_step = 0.0001 if is_forex else 0.05
+
+            structural_risk = max(close_p * 0.005, 1.0 * atr)
+            structural_reward = max(structural_risk * 1.15, close_p * 0.006)
 
             if signal == "BUY":
                 action = "BUY"
@@ -316,15 +309,11 @@ class LiveMarketService:
                 strategy_name = strat_sig.get("strategy", "Scalp Pullback Strategy") if strat_sig else "Scalp Pullback Strategy"
                 reason = strat_sig.get("reason", "Bullish momentum & 20 EMA pullback test") if (strat_sig and strat_sig.get("reason")) else "Bullish momentum & 20 EMA pullback test"
 
-                sl = round(close_p - max(close_p * 0.006, 1.2 * atr), dec)
-                if sl >= entry_price:
-                    sl = round(entry_price * 0.994, dec)
+                sl = round(close_p - structural_risk, dec)
                 if sl >= entry_price:
                     sl = round(entry_price - min_step, dec)
 
-                tgt = round(close_p + min(1.2 * atr, close_p * 0.005), dec)
-                if tgt <= entry_price:
-                    tgt = round(entry_price * 1.005, dec)
+                tgt = round(close_p + structural_reward, dec)
                 if tgt <= entry_price:
                     tgt = round(entry_price + min_step, dec)
 
@@ -334,15 +323,11 @@ class LiveMarketService:
                 strategy_name = strat_sig.get("strategy", "Scalp Breakout Strategy") if strat_sig else "Scalp Breakout Strategy"
                 reason = strat_sig.get("reason", "Bearish rejection at resistance & downward EMA alignment") if (strat_sig and strat_sig.get("reason")) else "Bearish rejection at resistance & downward EMA alignment"
 
-                sl = round(close_p + max(close_p * 0.006, 1.2 * atr), dec)
-                if sl <= entry_price:
-                    sl = round(entry_price * 1.006, dec)
+                sl = round(close_p + structural_risk, dec)
                 if sl <= entry_price:
                     sl = round(entry_price + min_step, dec)
 
-                tgt = round(close_p - min(1.2 * atr, close_p * 0.005), dec)
-                if tgt >= entry_price:
-                    tgt = round(entry_price * 0.995, dec)
+                tgt = round(close_p - structural_reward, dec)
                 if tgt >= entry_price:
                     tgt = round(entry_price - min_step, dec)
 
@@ -350,19 +335,26 @@ class LiveMarketService:
                 action = "WAIT"
                 confidence = 0.50
                 strategy_name = "Consolidation"
-                reason = "Consolidation / neutral range; awaiting directional breakout"
+                reason = "Consolidation / neutral range; awaiting breakout or 20 EMA pullback test"
 
-                sl = round(entry_price * 0.994, dec)
+                sl = round(close_p - structural_risk, dec)
                 if sl >= entry_price:
                     sl = round(entry_price - min_step, dec)
 
-                tgt = round(entry_price * 1.005, dec)
+                tgt = round(close_p + structural_reward, dec)
                 if tgt <= entry_price:
                     tgt = round(entry_price + min_step, dec)
 
             risk_dist = abs(entry_price - sl)
             target_dist = abs(tgt - entry_price)
-            risk_reward = round(target_dist / (risk_dist + 1e-6), 2)
+            risk_reward = round(target_dist / (risk_dist + 1e-10), 2)
+
+            # Pre-flight check: ensure R:R meets minimum requirement for active orders
+            if action in ("BUY", "SELL") and risk_reward < 0.8:
+                action = "WAIT"
+                reason = f"Trade invalid: Risk/Reward ratio {risk_reward} below minimum 0.8"
+                confidence = 0.40
+
             target_profit = round(target_dist * quantity, dec)
             max_risk = round(risk_dist * quantity, dec)
 
