@@ -1,5 +1,5 @@
 """Deterministic Risk Management Engine for AI Trading Assistant."""
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Optional
 from backend.core.config import settings
 from backend.core.logging import logger
 from backend.database.session import SessionLocal
@@ -52,7 +52,8 @@ class RiskManager:
         stop_loss: float,
         target: float,
         portfolio: Portfolio,
-        open_positions_count: int
+        open_positions_count: int,
+        requested_quantity: Optional[int] = None
     ) -> Tuple[bool, int, str]:
         """
         Evaluate if a proposed order meets deterministic risk rules and calculate quantity.
@@ -118,15 +119,16 @@ class RiskManager:
             return False, 0, reason
 
         risk_budget = portfolio.capital * settings.RISK_PER_TRADE
-        ideal_quantity = int(risk_budget / (risk_per_share + 1e-10))
-
-        if ideal_quantity <= 0:
-            ideal_quantity = 1 if (1 * entry_price <= max_trade_cap and 1 * risk_per_share <= risk_budget * 1.5) else 0
+        if requested_quantity is not None and requested_quantity > 0:
+            ideal_quantity = min(requested_quantity, max_qty_by_cap)
+        else:
+            ideal_quantity = int(risk_budget / (risk_per_share + 1e-10))
             if ideal_quantity <= 0:
-                reason = f"Order rejected: Risk per share (₹{risk_per_share:.2f}) exceeds risk budget (₹{risk_budget:.2f})."
-                self._log_risk_event("REJECT_RISK_BUDGET", reason, "WARNING")
-                return False, 0, reason
-
+                ideal_quantity = 1 if (1 * entry_price <= max_trade_cap and 1 * risk_per_share <= risk_budget * 1.5) else 0
+                if ideal_quantity <= 0:
+                    reason = f"Order rejected: Risk per share (₹{risk_per_share:.2f}) exceeds risk budget (₹{risk_budget:.2f})."
+                    self._log_risk_event("REJECT_RISK_BUDGET", reason, "WARNING")
+                    return False, 0, reason
         ideal_quantity = min(ideal_quantity, max_qty_by_cap)
 
         # 8. Check Available Cash / Exposure

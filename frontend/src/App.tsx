@@ -219,9 +219,30 @@ export default function App() {
     setOrderModalOpen(true);
   };
 
+  const handleQuickOrder = () => {
+    const latestP = candles.length > 0 ? candles[candles.length - 1].close : 3000;
+    setSelectedSignalForOrder({
+      symbol,
+      timestamp: new Date().toISOString(),
+      strategy: 'Manual Quick Trade',
+      signal: 'BUY',
+      confidence: 1.0,
+      entry_price: latestP,
+      stop_loss: Number((latestP * 0.985).toFixed(2)),
+      target: Number((latestP * 1.03).toFixed(2)),
+      risk_reward: 2.0,
+      reason: 'Manual Quick Paper Trade (10-Min Window)'
+    });
+    setOrderModalOpen(true);
+  };
+
   const handleOrderSubmit = async (orderData: any) => {
     await api.placePaperOrder(orderData);
     await loadPortfolioData();
+    setOrderAlert({
+      type: 'success',
+      message: `✅ Order Placed! ${orderData.side} ${orderData.symbol} @ ₹${Number(orderData.price).toFixed(2)}. Active in Open Virtual Positions below.`
+    });
   };
 
   // Direct 1-click order execution handler
@@ -241,9 +262,14 @@ export default function App() {
         price: orderData.price,
         stop_loss: orderData.stop_loss,
         target: orderData.target,
-        order_type: orderData.order_type || 'MARKET'
+        order_type: orderData.order_type || 'MARKET',
+        quantity: orderData.quantity
       });
       await loadPortfolioData();
+      setOrderAlert({
+        type: 'success',
+        message: `✅ Order Filled! ${orderData.side} ${orderData.quantity || 1} shares of ${orderData.symbol} @ ₹${Number(orderData.price).toFixed(2)}. Active in Open Virtual Positions below.`
+      });
       return { success: true, data: res };
     } catch (err: any) {
       const errorMsg = err?.response?.data?.detail || err?.message || 'Order execution failed';
@@ -482,7 +508,14 @@ export default function App() {
           </div>
 
           {/* Open Positions and Completed Trade History */}
-          <PositionTable positions={positions} trades={trades} onClosePosition={handleClosePosition} />
+          <div id="positions-section">
+            <PositionTable
+              positions={positions}
+              trades={trades}
+              onClosePosition={handleClosePosition}
+              onQuickOrder={handleQuickOrder}
+            />
+          </div>
         </div>
       ) : (
         <BacktestView symbol={symbol} />

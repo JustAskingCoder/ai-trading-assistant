@@ -13,7 +13,7 @@ from backend.paper.paper_broker import PaperBroker, paper_broker
 from backend.backtesting.engine import run_backtest
 from backend.ai.schemas import AIAnalysisResponse, EntryZone
 from backend.database.session import SessionLocal, Base, engine
-from backend.database.models import Portfolio, Position, Trade
+from backend.database.models import Portfolio, Position, Trade, PaperOrder
 from backend.main import app
 from fastapi.testclient import TestClient
 
@@ -527,3 +527,166 @@ def test_ten_minute_window_auto_exit():
     finally:
         paper_broker.reset_portfolio(db)
         db.close()
+
+
+def test_directional_protection():
+    """Verify that place_order automatically guards invalid SL and Target to prevent immediate exits."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        # BUY with invalid stop_loss (>= price) and invalid target (<= price)
+        order_buy = paper_broker.place_order(
+            symbol="TEST_GUARD_BUY",
+            side="BUY",
+            quantity=5,
+            price=1000.0,
+            stop_loss=1050.0,  # invalid (>= 1000) -> should be round(1000 * 0.985, 2) = 985.0
+            target=950.0,      # invalid (<= 1000) -> should be round(1000 * 1.03, 2) = 1030.0
+            db=db
+        )
+        assert order_buy["status"] == "FILLED"
+        pos_buy = db.query(Position).filter(Position.symbol == "TEST_GUARD_BUY").first()
+        assert pos_buy is not None
+        assert pos_buy.stop_loss == 985.0
+        assert pos_buy.target == 1030.0
+        assert pos_buy.entry_time is not None
+
+        # Verify SELL directional protection
+        # Place BUY first so we have inventory to SELL
+        paper_broker.place_order(
+            symbol="TEST_GUARD_SELL",
+            side="BUY",
+            quantity=10,
+            price=1000.0,
+            stop_loss=950.0,
+            target=1100.0,
+            db=db
+        )
+        # Now SELL with invalid SL (<= price) and target (>= price)
+        order_sell = paper_broker.place_order(
+            symbol="TEST_GUARD_SELL",
+            side="SELL",
+            quantity=5,
+            price=1000.0,
+            stop_loss=900.0,   # invalid (<= 1000) -> should be round(1000 * 1.015, 2) = 1015.0
+            target=1050.0,    # invalid (>= 1000) -> should be round(1000 * 0.97, 2) = 970.0
+            db=db
+        )
+        assert order_sell["status"] == "FILLED"
+        order_rec = db.query(PaperOrder).filter(PaperOrder.id == order_sell["order_id"]).first()
+        assert order_rec.stop_loss == 1015.0
+        assert order_rec.target == 970.0
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_wall_clock_window_expiry():
+    """Verify that update_market_price evaluates real wall-clock elapsed time >= 600s and triggers 10-Min Window Expired."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        paper_broker.place_order(
+            symbol="TEST_WALLCLOCK",
+            side="BUY",
+            quantity=2,
+            price=500.0,
+            stop_loss=450.0,
+            target=550.0,
+            db=db
+        )
+        pos = db.query(Position).filter(Position.symbol == "TEST_WALLCLOCK").first()
+        assert pos is not None
+
+        # Manually backdate entry_time to 601 seconds ago
+        pos.entry_time = datetime.utcnow() - timedelta(seconds=601)
+        db.commit()
+
+        # Update market price with candle_time=None (pure wall clock check)
+        triggers = paper_broker.update_market_price("TEST_WALLCLOCK", 505.0, candle_time=None, db=db)
+        assert len(triggers) == 1
+        assert triggers[0]["reason"] == "10-Min Window Expired"
+        assert triggers[0]["symbol"] == "TEST_WALLCLOCK"
+
+        closed_pos = db.query(Position).filter(Position.symbol == "TEST_WALLCLOCK").first()
+        assert closed_pos is None
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_risk_manager_requested_quantity():
+    """Verify requested_quantity parameter in RiskManager.evaluate_order."""
+    rm = RiskManager()
+    portfolio = Portfolio(capital=10000.0, available_cash=10000.0, daily_pnl=0.0)
+
+    # 1. requested_quantity provided and within cap
+    app, qty, reason = rm.evaluate_order(
+        symbol="TEST_QTY",
+        side="BUY",
+        entry_price=100.0,
+        stop_loss=95.0,
+        target=110.0,
+        portfolio=portfolio,
+        open_positions_count=0,
+        requested_quantity=5
+    )
+    assert app is True
+    assert qty == 5
+
+    # 2. requested_quantity exceeds cap (requested 80, cap is 50) -> capped to 50
+    app, qty, reason = rm.evaluate_order(
+        symbol="TEST_QTY",
+        side="BUY",
+        entry_price=100.0,
+        stop_loss=95.0,
+        target=110.0,
+        portfolio=portfolio,
+        open_positions_count=0,
+        requested_quantity=80
+    )
+    assert app is True
+    assert qty == 50
+
+    # 3. requested_quantity is None -> calculates based on risk budget
+    app, qty, reason = rm.evaluate_order(
+        symbol="TEST_QTY",
+        side="BUY",
+        entry_price=100.0,
+        stop_loss=95.0,
+        target=110.0,
+        portfolio=portfolio,
+        open_positions_count=0,
+        requested_quantity=None
+    )
+    assert app is True
+    assert qty == 29
+
+
+def test_api_paper_order_with_requested_quantity():
+    """Verify POST /api/paper/orders respects requested quantity."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        client = TestClient(app)
+        res = client.post("/api/paper/orders", json={
+            "symbol": "TEST_API_QTY",
+            "side": "BUY",
+            "price": 200.0,
+            "stop_loss": 190.0,
+            "target": 220.0,
+            "quantity": 7
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["quantity"] == 7
+        assert data["symbol"] == "TEST_API_QTY"
+        assert data["status"] == "FILLED"
+
+        pos = db.query(Position).filter(Position.symbol == "TEST_API_QTY").first()
+        assert pos is not None
+        assert pos.quantity == 7
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+

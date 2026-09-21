@@ -19,6 +19,7 @@ class PaperOrderRequest(BaseModel):
     stop_loss: float
     target: float
     order_type: str = "MARKET"
+    quantity: Optional[int] = None
 
 
 @router.get("/portfolio")
@@ -141,7 +142,8 @@ def place_paper_order(req: PaperOrderRequest, db: Session = Depends(get_db)):
         stop_loss=req.stop_loss,
         target=req.target,
         portfolio=portfolio,
-        open_positions_count=open_pos_count
+        open_positions_count=open_pos_count,
+        requested_quantity=req.quantity
     )
 
     if not approved:

@@ -1,21 +1,49 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PositionData, TradeData } from '../../types';
-import { TrendingUp, TrendingDown, Layers } from 'lucide-react';
+import { TrendingUp, TrendingDown, Layers, Zap } from 'lucide-react';
 
 interface Props {
   positions: PositionData[];
   trades: TradeData[];
   onClosePosition?: (id: number) => void;
+  onQuickOrder?: () => void;
 }
 
-export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosition }) => {
+export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosition, onQuickOrder }) => {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getWindowStatus = (entryTime?: string | null) => {
+    if (!entryTime) return { text: '⏱ 10m Max', style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+    const elapsedSec = Math.floor((Date.now() - new Date(entryTime).getTime()) / 1000);
+    const remSec = Math.max(0, 600 - elapsedSec);
+    const mins = Math.floor(remSec / 60);
+    const secs = remSec % 60;
+    const text = `⏱ ${mins}m ${String(secs).padStart(2, '0')}s left`;
+    if (remSec > 300) return { text, style: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+    if (remSec > 120) return { text, style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+    return { text, style: 'bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse font-black' };
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Active Positions */}
       <div className="rounded-xl border border-dark-600 bg-dark-800 p-4 shadow-lg">
-        <div className="flex items-center gap-2 border-b border-dark-700 pb-3">
-          <Layers className="h-4 w-4 text-trade-blue" />
-          <h3 className="font-bold text-white text-sm tracking-tight">Open Virtual Positions ({positions.length})</h3>
+        <div className="flex items-center justify-between border-b border-dark-700 pb-3">
+          <div className="flex items-center gap-2">
+            <Layers className="h-4 w-4 text-trade-blue" />
+            <h3 className="font-bold text-white text-sm tracking-tight">Open Virtual Positions ({positions.length})</h3>
+          </div>
+          <button
+            onClick={() => onQuickOrder?.()}
+            className="flex items-center gap-1 rounded-lg bg-indigo-600/30 hover:bg-indigo-600/50 border border-indigo-500/40 px-2.5 py-1 text-xs font-bold text-indigo-300 hover:text-white transition-colors shadow-sm"
+            title="Place instant manual paper trade"
+          >
+            ⚡ Quick Paper Trade
+          </button>
         </div>
 
         {positions.length === 0 ? (
@@ -39,7 +67,8 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
               </thead>
               <tbody className="divide-y divide-dark-700/50">
                 {positions.map(p => {
-                  const isProfit = p.unrealized_pnl >= 0;
+                  const isProfit = (p.unrealized_pnl ?? 0) >= 0;
+                  const windowStatus = getWindowStatus(p.entry_time);
                   return (
                     <tr key={p.id} className="hover:bg-dark-700/30">
                       <td className="py-2.5 font-bold text-white">{p.symbol}</td>
@@ -49,8 +78,8 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                         </span>
                       </td>
                       <td className="py-2.5 font-medium">{p.quantity}</td>
-                      <td className="py-2.5 text-slate-300">₹{p.average_price.toFixed(2)}</td>
-                      <td className="py-2.5 text-white font-medium">₹{p.current_price.toFixed(2)}</td>
+                      <td className="py-2.5 text-slate-300">₹{(p.average_price ?? 0).toFixed(2)}</td>
+                      <td className="py-2.5 text-white font-medium">₹{(p.current_price ?? p.average_price ?? 0).toFixed(2)}</td>
                       <td className="py-2.5">
                         <span className="text-red-400 font-semibold">
                           {p.stop_loss ? `₹${p.stop_loss.toFixed(2)}` : '—'}
@@ -62,12 +91,12 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                         </span>
                       </td>
                       <td className="py-2.5">
-                        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
-                          ⏱ 10m Max
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold border ${windowStatus.style}`}>
+                          {windowStatus.text}
                         </span>
                       </td>
                       <td className={`py-2.5 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>
-                        {isProfit ? '+' : ''}₹{p.unrealized_pnl.toFixed(2)} ({isProfit ? '+' : ''}{p.pnl_percentage}%)
+                        {isProfit ? '+' : ''}₹{(p.unrealized_pnl ?? 0).toFixed(2)} ({isProfit ? '+' : ''}{p.pnl_percentage ?? 0}%)
                       </td>
                       {onClosePosition && (
                         <td className="py-2.5 text-right">

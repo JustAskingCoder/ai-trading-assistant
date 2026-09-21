@@ -79,6 +79,18 @@ class PaperBroker:
             portfolio = self.get_portfolio(db)
             now = datetime.utcnow()
 
+            # Directional protection
+            if side.upper() == 'BUY':
+                if stop_loss is not None and stop_loss > 0 and stop_loss >= price:
+                    stop_loss = round(price * 0.985, 2)
+                if target is not None and target > 0 and target <= price:
+                    target = round(price * 1.03, 2)
+            elif side.upper() == 'SELL':
+                if stop_loss is not None and stop_loss > 0 and stop_loss <= price:
+                    stop_loss = round(price * 1.015, 2)
+                if target is not None and target > 0 and target >= price:
+                    target = round(price * 0.97, 2)
+
             # Record Paper Order
             order = PaperOrder(
                 symbol=symbol,
@@ -221,21 +233,25 @@ class PaperBroker:
                         reason = 'Target Hit'
 
                 if pos.entry_time:
+                    now_utc = datetime.utcnow()
                     pos_time = pos.entry_time
                     if isinstance(pos_time, str):
                         try:
                             pos_time = datetime.fromisoformat(pos_time.replace("Z", "+00:00"))
                         except Exception:
                             pass
-                    time_ref = candle_time if (candle_time and isinstance(candle_time, datetime)) else datetime.utcnow()
-                    time_ref_cmp = time_ref.replace(tzinfo=None) if time_ref.tzinfo is not None else time_ref
-                    entry_time_cmp = pos_time.replace(tzinfo=None) if getattr(pos_time, 'tzinfo', None) is not None else pos_time
-                    try:
-                        elapsed_min = (time_ref_cmp - entry_time_cmp).total_seconds() / 60.0
-                    except Exception:
-                        elapsed_min = 0.0
-                    if elapsed_min >= 10.0 and not reason:
+                    pos_dt = pos_time.replace(tzinfo=None) if getattr(pos_time, 'tzinfo', None) is not None else pos_time
+                    elapsed_sec = (now_utc - pos_dt).total_seconds()
+                    if elapsed_sec >= 600.0 and not reason:
                         reason = "10-Min Window Expired"
+                    elif candle_time and not reason:
+                        c_time = candle_time.replace(tzinfo=None) if getattr(candle_time, 'tzinfo', None) is not None else candle_time
+                        try:
+                            candle_elapsed_min = (c_time - pos_dt).total_seconds() / 60.0
+                            if candle_elapsed_min >= 10.0:
+                                reason = "10-Min Window Expired"
+                        except Exception:
+                            pass
 
                 if reason is not None:
                     exit_record = {

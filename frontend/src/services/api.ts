@@ -30,6 +30,7 @@ export const api = {
     stop_loss: number;
     target: number;
     order_type?: string;
+    quantity?: number;
   }) => client.post('/paper/orders', order).then(r => r.data),
   analyzeWithAI: (data: any, provider?: string): Promise<AIAnalysis> =>
     client.post('/ai/analyze', data, { params: { provider } }).then(r => r.data),

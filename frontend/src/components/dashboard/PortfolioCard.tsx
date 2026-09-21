@@ -21,7 +21,7 @@ export const PortfolioCard: React.FC<Props> = ({ portfolio }) => {
         <div className="mt-1 text-lg font-bold text-white tracking-tight">
           ₹{portfolio.capital.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
         </div>
-        <div className="text-[11px] text-slate-400 mt-0.5">Virtual Initial: ₹1,00,000</div>
+        <div className="text-[11px] text-slate-400 mt-0.5">Virtual Initial: ₹10,000</div>
       </div>
 
       <div className="rounded-xl border border-dark-600 bg-dark-800 p-3.5 shadow-sm">
@@ -44,7 +44,7 @@ export const PortfolioCard: React.FC<Props> = ({ portfolio }) => {
           {isDailyProfitable ? '+' : ''}₹{portfolio.daily_pnl.toFixed(2)}
         </div>
         <div className="text-[11px] text-slate-400 mt-0.5">
-          Limit: -₹{(portfolio.capital * 0.02).toFixed(0)} (2%)
+          Limit: -₹{(portfolio.capital * 0.03).toFixed(0)} (3%)
         </div>
       </div>
 

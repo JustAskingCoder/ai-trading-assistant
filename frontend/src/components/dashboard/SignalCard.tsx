@@ -40,6 +40,7 @@ export const SignalCard: React.FC<Props> = ({
   }
 
   const isBuy = signal.signal === 'BUY';
+  const isOutOfRange = (isBuy && signal.entry_price <= signal.stop_loss) || (!isBuy && signal.entry_price >= signal.stop_loss);
   const maxInvestment = 5000;
   const riskPerShare = Math.max(0.1, Math.abs(signal.entry_price - signal.stop_loss));
   const maxQtyByCost = Math.max(1, Math.floor(maxInvestment / signal.entry_price));
@@ -110,6 +111,11 @@ export const SignalCard: React.FC<Props> = ({
               <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 border border-amber-500/20">
                 ⏱ 10m Max Window
               </span>
+              {isOutOfRange && (
+                <span className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-300 border border-rose-500/30 animate-pulse">
+                  ⚠️ Signal Out of Range
+                </span>
+              )}
             </div>
             <span
               className={`rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${
@@ -218,16 +224,20 @@ export const SignalCard: React.FC<Props> = ({
       <div className="mt-4 pt-3 border-t border-dark-700/80 flex flex-wrap items-center gap-2.5">
         <button
           onClick={handlePlaceDirectOrder}
-          disabled={executing}
+          disabled={executing || isOutOfRange}
           className={`flex-1 min-w-[200px] flex items-center justify-center gap-2 rounded-lg py-2.5 px-4 text-xs sm:text-sm font-black text-white transition-all shadow-md ${
-            isBuy
+            isOutOfRange
+              ? 'bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed'
+              : isBuy
               ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
               : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/30'
           } disabled:opacity-50 disabled:cursor-not-allowed`}
         >
           <Zap className="h-4 w-4 fill-current" />
           <span>
-            {executing
+            {isOutOfRange
+              ? '⚠️ SIGNAL OUT OF RANGE'
+              : executing
               ? 'EXECUTING ORDER...'
               : `⚡ PLACE ORDER (${isBuy ? 'BUY' : 'SELL'} ${qty} SHARES · ₹${totalInvestment})`}
           </span>
