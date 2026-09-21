@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { api } from './services/api';
-import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus } from './types';
+import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote } from './types';
 import { CandlestickChart } from './components/charts/CandlestickChart';
 import { PortfolioCard } from './components/dashboard/PortfolioCard';
 import { SignalCard } from './components/dashboard/SignalCard';
@@ -226,6 +226,54 @@ export default function App() {
       }
     } catch (e) {
       console.error('Error reloading symbol data:', e);
+    }
+  };
+
+  // 1-Click trade execution directly from Multi-Asset Scanner card or decision matrix
+  const handleTradeFromWatchlist = async (quote: WatchlistQuote) => {
+    const side = quote.action === 'SELL' ? 'SELL' : 'BUY';
+    const isForex = quote.market === 'FOREX';
+    const dec = isForex ? 4 : 2;
+    const price = Number(quote.entry_price || quote.price);
+    const quantity = quote.quantity || 1;
+    const stop_loss =
+      quote.stop_loss !== undefined
+        ? Number(quote.stop_loss)
+        : side === 'BUY'
+        ? Number((price * 0.994).toFixed(dec))
+        : Number((price * 1.006).toFixed(dec));
+    const target =
+      quote.target !== undefined
+        ? Number(quote.target)
+        : side === 'BUY'
+        ? Number((price * 1.005).toFixed(dec))
+        : Number((price * 0.995).toFixed(dec));
+
+    try {
+      await api.placePaperOrder({
+        symbol: quote.symbol,
+        side,
+        quantity,
+        price,
+        stop_loss,
+        target,
+        order_type: 'MARKET'
+      });
+      await loadPortfolioData();
+      const priceDisplay = isForex
+        ? `${quote.symbol.includes('INR') ? '₹' : ''}${price.toFixed(4)}`
+        : `₹${price.toFixed(2)}`;
+      setOrderAlert({
+        type: 'success',
+        message: `✅ Order Filled! ${side} ${quantity} ${isForex ? 'unit' : 'share'} of ${quote.symbol} @ ${priceDisplay}. Added to Open Virtual Positions.`
+      });
+    } catch (err: any) {
+      console.error('Watchlist trade execution error:', err);
+      const errorMsg = err?.response?.data?.detail || err?.message || 'Trade execution failed';
+      setOrderAlert({
+        type: 'error',
+        message: `❌ Order Failed for ${quote.symbol}: ${errorMsg}`
+      });
     }
   };
 
@@ -599,7 +647,11 @@ export default function App() {
       {activeTab === 'live' ? (
         <div className="space-y-5">
           {/* Live Multi-Asset Watchlist Scanner */}
-          <MultiAssetWatchlist selectedSymbol={symbol} onSelectSymbol={handleSelectSymbol} />
+          <MultiAssetWatchlist
+            selectedSymbol={symbol}
+            onSelectSymbol={handleSelectSymbol}
+            onPlaceOrder={handleTradeFromWatchlist}
+          />
 
           {/* Main Candlestick Chart */}
           <CandlestickChart data={candles} symbol={symbol} marketMode={marketMode} />

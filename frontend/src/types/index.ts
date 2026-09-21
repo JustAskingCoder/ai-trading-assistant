@@ -131,4 +131,15 @@ export interface WatchlistQuote {
   volume?: number;
   signal?: 'BUY' | 'SELL' | 'HOLD';
   indicators?: Record<string, any>;
+  action?: 'BUY' | 'SELL' | 'WAIT';
+  quantity?: number;
+  entry_price?: number;
+  stop_loss?: number;
+  target?: number;
+  risk_reward?: number;
+  target_profit?: number;
+  max_risk?: number;
+  reason?: string;
+  strategy?: string;
+  confidence?: number;
 }

@@ -1240,7 +1240,7 @@ def test_forex_symbol_mapping():
 
 
 def test_live_service_get_watchlist_quotes_mocked():
-    """Verify get_watchlist_quotes correctly formats multi-asset quote metrics and signals."""
+    """Verify get_watchlist_quotes correctly formats multi-asset quote metrics, trade brackets, and signals."""
     from unittest.mock import MagicMock, patch
     from backend.data.live_market_service import live_service
 
@@ -1272,23 +1272,131 @@ def test_live_service_get_watchlist_quotes_mocked():
         assert "low" in rel
         assert "volume" in rel
         assert rel["signal"] in ["BUY", "SELL", "HOLD"]
+        assert rel["action"] in ["BUY", "SELL", "WAIT"]
+        assert rel["quantity"] == 1
+        assert rel["entry_price"] == rel["price"]
+        assert rel["stop_loss"] > 0
+        assert rel["target"] > 0
+        assert rel["risk_reward"] > 0
+        assert rel["target_profit"] > 0
+        assert rel["max_risk"] > 0
+        assert isinstance(rel["reason"], str) and len(rel["reason"]) > 0
+        assert isinstance(rel["strategy"], str) and len(rel["strategy"]) > 0
+        assert 0.0 <= rel["confidence"] <= 1.0
 
         usdinr = next(q for q in quotes if q["symbol"] == "USD/INR")
         assert usdinr["market"] == "FOREX"
         assert usdinr["price"] > 0
         assert usdinr["signal"] in ["BUY", "SELL", "HOLD"]
+        assert usdinr["action"] in ["BUY", "SELL", "WAIT"]
+        assert usdinr["quantity"] == 1
+        assert usdinr["stop_loss"] > 0
+        assert usdinr["target"] > 0
+
+
+def test_watchlist_actionable_trade_brackets():
+    """Verify watchlist quotes return complete directional brackets without invalid SL/TP inversions."""
+    from unittest.mock import MagicMock, patch
+    from backend.data.live_market_service import LiveMarketService
+
+    service = LiveMarketService()
+    dates = pd.date_range("2026-09-21 09:15", periods=30, freq="5min")
+    mock_df = pd.DataFrame({
+        "Open": np.linspace(100, 110, 30),
+        "High": np.linspace(101, 111, 30),
+        "Low": np.linspace(99, 109, 30),
+        "Close": np.linspace(100.5, 110.5, 30),
+        "Volume": [1000] * 30,
+        "Dividends": [0.0] * 30,
+        "Stock Splits": [0.0] * 30
+    }, index=dates)
+
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_inst = MagicMock()
+        mock_inst.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_inst
+
+        quotes = service.get_watchlist_quotes(["RELIANCE", "USDINR"])
+        assert len(quotes) == 2
+        for q in quotes:
+            assert q["action"] in ["BUY", "SELL", "WAIT"]
+            assert q["quantity"] == 1
+            assert q["entry_price"] > 0
+            assert q["stop_loss"] > 0
+            assert q["target"] > 0
+            assert q["risk_reward"] > 0
+            assert q["target_profit"] > 0
+            assert q["max_risk"] > 0
+            assert isinstance(q["reason"], str) and len(q["reason"]) > 0
+            assert isinstance(q["strategy"], str) and len(q["strategy"]) > 0
+            assert 0.0 <= q["confidence"] <= 1.0
+
+            if q["action"] == "BUY":
+                assert q["stop_loss"] < q["entry_price"], f"BUY stop loss ({q['stop_loss']}) must be < entry price ({q['entry_price']})"
+                assert q["target"] > q["entry_price"], f"BUY target ({q['target']}) must be > entry price ({q['entry_price']})"
+            elif q["action"] == "SELL":
+                assert q["stop_loss"] > q["entry_price"], f"SELL stop loss ({q['stop_loss']}) must be > entry price ({q['entry_price']})"
+                assert q["target"] < q["entry_price"], f"SELL target ({q['target']}) must be < entry price ({q['entry_price']})"
 
 
 def test_api_market_watchlist_endpoint():
-    """Verify GET /api/market/watchlist endpoint returns multi-asset quote array."""
+    """Verify GET /api/market/watchlist endpoint returns multi-asset quote array with trade decisions."""
     from unittest.mock import patch
     from backend.data.live_market_service import live_service
 
     client = TestClient(app)
 
     mock_quotes = [
-        {"symbol": "RELIANCE", "price": 1240.0, "change": 5.0, "change_percentage": 0.4, "open": 1235.0, "high": 1245.0, "low": 1230.0, "volume": 100000.0, "signal": "BUY", "market": "NSE", "timestamp": "2026-09-21 12:00:00"},
-        {"symbol": "USDINR", "price": 95.83, "change": -0.01, "change_percentage": -0.01, "open": 95.84, "high": 95.90, "low": 95.70, "volume": 0.0, "signal": "HOLD", "market": "FOREX", "timestamp": "2026-09-21 12:00:00"}
+        {
+            "symbol": "RELIANCE",
+            "name": "Reliance Industries",
+            "price": 1240.0,
+            "change": 5.0,
+            "change_percentage": 0.4,
+            "open": 1235.0,
+            "high": 1245.0,
+            "low": 1230.0,
+            "volume": 100000.0,
+            "signal": "BUY",
+            "action": "BUY",
+            "quantity": 1,
+            "entry_price": 1240.0,
+            "stop_loss": 1232.0,
+            "target": 1246.0,
+            "risk_reward": 0.75,
+            "target_profit": 6.0,
+            "max_risk": 8.0,
+            "reason": "Bullish momentum & 20 EMA pullback test",
+            "strategy": "Scalp Pullback Strategy",
+            "confidence": 0.82,
+            "market": "NSE",
+            "timestamp": "2026-09-21 12:00:00"
+        },
+        {
+            "symbol": "USDINR",
+            "name": "USD / INR",
+            "price": 95.83,
+            "change": -0.01,
+            "change_percentage": -0.01,
+            "open": 95.84,
+            "high": 95.90,
+            "low": 95.70,
+            "volume": 0.0,
+            "signal": "HOLD",
+            "action": "WAIT",
+            "quantity": 1,
+            "entry_price": 95.83,
+            "stop_loss": 95.25,
+            "target": 96.30,
+            "risk_reward": 0.81,
+            "target_profit": 0.47,
+            "max_risk": 0.58,
+            "reason": "Consolidation / neutral range; awaiting directional breakout",
+            "strategy": "Consolidation",
+            "confidence": 0.50,
+            "market": "FOREX",
+            "timestamp": "2026-09-21 12:00:00"
+        }
     ]
 
     with patch.object(live_service, "get_watchlist_quotes", return_value=mock_quotes) as mock_fn:
@@ -1298,8 +1406,18 @@ def test_api_market_watchlist_endpoint():
         assert len(data) == 2
         assert data[0]["symbol"] == "RELIANCE"
         assert data[0]["market"] == "NSE"
+        assert data[0]["action"] == "BUY"
+        assert data[0]["quantity"] == 1
+        assert data[0]["entry_price"] == 1240.0
+        assert data[0]["stop_loss"] == 1232.0
+        assert data[0]["target"] == 1246.0
+        assert data[0]["risk_reward"] == 0.75
+        assert data[0]["target_profit"] == 6.0
+        assert data[0]["max_risk"] == 8.0
+
         assert data[1]["symbol"] == "USDINR"
         assert data[1]["market"] == "FOREX"
+        assert data[1]["action"] == "WAIT"
         mock_fn.assert_called_once_with(["RELIANCE", "USDINR"])
 
 

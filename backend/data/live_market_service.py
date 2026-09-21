@@ -231,6 +231,17 @@ class LiveMarketService:
                     "low": 0.0,
                     "volume": 0.0,
                     "signal": "HOLD",
+                    "action": "WAIT",
+                    "quantity": 1,
+                    "entry_price": 0.0,
+                    "stop_loss": 0.0,
+                    "target": 0.0,
+                    "risk_reward": 1.0,
+                    "target_profit": 0.0,
+                    "max_risk": 0.0,
+                    "reason": "Insufficient market data for trade decision",
+                    "strategy": "Consolidation",
+                    "confidence": 0.50,
                     "market": market,
                     "indicators": {},
                     "timestamp": datetime.now().isoformat()
@@ -269,20 +280,22 @@ class LiveMarketService:
             low_p = float(ind_df["low"].min())
             vol_total = float(ind_df["volume"].sum())
 
+            # Extract ATR
+            atr_raw = last_candle.get("atr")
+            atr = float(atr_raw) if pd.notnull(atr_raw) and float(atr_raw) > 0 else (close_p * 0.005)
+
             # Evaluate quick signal ('BUY', 'SELL', or 'HOLD')
             signal = "HOLD"
-            signals = []
+            strat_sig = None
             if len(ind_df) >= 25:
                 for strat in self.strategies:
                     sig = strat.evaluate(ind_df, -1)
                     if sig and "signal" in sig:
-                        signals.append(sig["signal"])
+                        strat_sig = sig
+                        signal = sig["signal"]
+                        break
 
-            if "BUY" in signals:
-                signal = "BUY"
-            elif "SELL" in signals:
-                signal = "SELL"
-            else:
+            if signal == "HOLD":
                 rsi = last_candle.get("rsi")
                 ema20 = last_candle.get("ema20")
                 ema50 = last_candle.get("ema50")
@@ -292,10 +305,71 @@ class LiveMarketService:
                     elif rsi > 65.0 or (ema20 is not None and ema50 is not None and ema20 < ema50 and close_p < ema20):
                         signal = "SELL"
 
+            # Derive actionable trade parameters
+            entry_price = round(close_p, dec)
+            quantity = 1
+            min_step = 0.0001 if is_forex else 0.05
+
+            if signal == "BUY":
+                action = "BUY"
+                confidence = float(strat_sig.get("confidence", 0.82)) if strat_sig else 0.82
+                strategy_name = strat_sig.get("strategy", "Scalp Pullback Strategy") if strat_sig else "Scalp Pullback Strategy"
+                reason = strat_sig.get("reason", "Bullish momentum & 20 EMA pullback test") if (strat_sig and strat_sig.get("reason")) else "Bullish momentum & 20 EMA pullback test"
+
+                sl = round(close_p - max(close_p * 0.006, 1.2 * atr), dec)
+                if sl >= entry_price:
+                    sl = round(entry_price * 0.994, dec)
+                if sl >= entry_price:
+                    sl = round(entry_price - min_step, dec)
+
+                tgt = round(close_p + min(1.2 * atr, close_p * 0.005), dec)
+                if tgt <= entry_price:
+                    tgt = round(entry_price * 1.005, dec)
+                if tgt <= entry_price:
+                    tgt = round(entry_price + min_step, dec)
+
+            elif signal == "SELL":
+                action = "SELL"
+                confidence = float(strat_sig.get("confidence", 0.82)) if strat_sig else 0.82
+                strategy_name = strat_sig.get("strategy", "Scalp Breakout Strategy") if strat_sig else "Scalp Breakout Strategy"
+                reason = strat_sig.get("reason", "Bearish rejection at resistance & downward EMA alignment") if (strat_sig and strat_sig.get("reason")) else "Bearish rejection at resistance & downward EMA alignment"
+
+                sl = round(close_p + max(close_p * 0.006, 1.2 * atr), dec)
+                if sl <= entry_price:
+                    sl = round(entry_price * 1.006, dec)
+                if sl <= entry_price:
+                    sl = round(entry_price + min_step, dec)
+
+                tgt = round(close_p - min(1.2 * atr, close_p * 0.005), dec)
+                if tgt >= entry_price:
+                    tgt = round(entry_price * 0.995, dec)
+                if tgt >= entry_price:
+                    tgt = round(entry_price - min_step, dec)
+
+            else:
+                action = "WAIT"
+                confidence = 0.50
+                strategy_name = "Consolidation"
+                reason = "Consolidation / neutral range; awaiting directional breakout"
+
+                sl = round(entry_price * 0.994, dec)
+                if sl >= entry_price:
+                    sl = round(entry_price - min_step, dec)
+
+                tgt = round(entry_price * 1.005, dec)
+                if tgt <= entry_price:
+                    tgt = round(entry_price + min_step, dec)
+
+            risk_dist = abs(entry_price - sl)
+            target_dist = abs(tgt - entry_price)
+            risk_reward = round(target_dist / (risk_dist + 1e-6), 2)
+            target_profit = round(target_dist * quantity, dec)
+            max_risk = round(risk_dist * quantity, dec)
+
             return {
                 "symbol": clean_sym,
                 "name": name,
-                "price": round(close_p, dec),
+                "price": entry_price,
                 "change": round(change, dec),
                 "change_percentage": round(change_pct, 2),
                 "open": round(open_p, dec),
@@ -303,6 +377,17 @@ class LiveMarketService:
                 "low": round(low_p, dec),
                 "volume": round(vol_total, 2),
                 "signal": signal,
+                "action": action,
+                "quantity": quantity,
+                "entry_price": entry_price,
+                "stop_loss": sl,
+                "target": tgt,
+                "risk_reward": risk_reward,
+                "target_profit": target_profit,
+                "max_risk": max_risk,
+                "reason": reason,
+                "strategy": strategy_name,
+                "confidence": confidence,
                 "market": market,
                 "indicators": {
                     "rsi": round(float(last_candle["rsi"]), 2) if pd.notnull(last_candle.get("rsi")) else None,
@@ -325,6 +410,17 @@ class LiveMarketService:
                 "low": 0.0,
                 "volume": 0.0,
                 "signal": "HOLD",
+                "action": "WAIT",
+                "quantity": 1,
+                "entry_price": 0.0,
+                "stop_loss": 0.0,
+                "target": 0.0,
+                "risk_reward": 1.0,
+                "target_profit": 0.0,
+                "max_risk": 0.0,
+                "reason": "Market feed unavailable",
+                "strategy": "Consolidation",
+                "confidence": 0.50,
                 "market": market,
                 "indicators": {},
                 "timestamp": datetime.now().isoformat()
