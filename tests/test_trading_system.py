@@ -1009,3 +1009,201 @@ def test_risk_manager_min_share_sizing_for_expensive_stocks():
     assert qty_low == 0
     assert "exceeds risk budget" in reason_low
 
+
+def test_live_market_service_symbol_mapping():
+    """Verify symbol mapping for Indian NSE symbols and Yahoo Finance notation."""
+    from backend.data.live_market_service import to_yf_symbol, LiveMarketService
+    service = LiveMarketService()
+
+    assert to_yf_symbol("RELIANCE") == "RELIANCE.NS"
+    assert to_yf_symbol("reliance") == "RELIANCE.NS"
+    assert to_yf_symbol("TCS") == "TCS.NS"
+    assert to_yf_symbol("INFY") == "INFY.NS"
+    assert to_yf_symbol("NIFTY") == "^NSEI"
+    assert to_yf_symbol("BANKNIFTY") == "^NSEBANK"
+    assert to_yf_symbol("TATAMOTORS.NS") == "TATAMOTORS.NS"
+    assert to_yf_symbol("^NSEI") == "^NSEI"
+    assert to_yf_symbol("UNMAPPED") == "UNMAPPED.NS"
+    assert service.to_yf_symbol("RELIANCE") == "RELIANCE.NS"
+
+
+def test_live_market_service_candles_mocked():
+    """Verify get_latest_candles calculates indicators and formats records properly with mocked yfinance."""
+    from unittest.mock import MagicMock, patch
+    from backend.data.live_market_service import LiveMarketService
+
+    service = LiveMarketService()
+    dates = pd.date_range("2026-09-21 09:15", periods=35, freq="5min")
+    mock_df = pd.DataFrame({
+        "Open": np.linspace(100, 110, 35),
+        "High": np.linspace(101, 111, 35),
+        "Low": np.linspace(99, 109, 35),
+        "Close": np.linspace(100.5, 110.5, 35),
+        "Volume": [1000] * 35,
+        "Dividends": [0.0] * 35,
+        "Stock Splits": [0.0] * 35
+    }, index=dates)
+
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_instance = MagicMock()
+        mock_instance.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_instance
+
+        candles = service.get_latest_candles("RELIANCE", "5m", limit=15)
+        assert len(candles) == 15
+        last = candles[-1]
+        assert last["symbol"] == "RELIANCE"
+        assert "timestamp" in last
+        assert isinstance(last["timestamp"], str)
+        assert "ema20" in last
+        assert "rsi" in last
+        assert "vwap" in last
+        assert "atr" in last
+        assert "macd" in last
+
+
+@pytest.mark.asyncio
+async def test_live_market_service_start_stop():
+    """Verify start and stop methods and mode properties."""
+    from backend.data.live_market_service import LiveMarketService
+    service = LiveMarketService()
+
+    assert service.mode == "SIMULATOR"
+    assert service.is_running is False
+
+    service.start("TCS", interval="5m")
+    assert service.mode == "LIVE"
+    assert service.symbol == "TCS"
+    assert service.interval == "5m"
+    assert service.is_running is True
+
+    service.stop()
+    assert service.mode == "SIMULATOR"
+    assert service.is_running is False
+
+
+def test_api_market_mode_endpoint():
+    """Verify GET and POST /api/market/mode endpoint functionality and switching."""
+    from backend.data.live_market_service import live_service
+    from backend.data.market_simulator import simulator
+
+    client = TestClient(app)
+
+    # 1. Initial status
+    res = client.get("/api/market/mode")
+    assert res.status_code == 200
+    data = res.json()
+    assert "mode" in data
+    assert "is_running" in data
+    assert "symbol" in data
+
+    # 2. Switch to LIVE mode
+    res_live = client.post("/api/market/mode?mode=LIVE&symbol=INFY")
+    assert res_live.status_code == 200
+    data_live = res_live.json()
+    assert data_live["status"] == "success"
+    assert data_live["mode"] == "LIVE"
+    assert data_live["symbol"] == "INFY"
+    assert data_live["is_running"] is True
+    assert live_service.mode == "LIVE"
+    assert live_service.symbol == "INFY"
+    assert simulator.is_running is False
+
+    # 3. GET /api/market/mode in LIVE mode
+    res_get_live = client.get("/api/market/mode")
+    assert res_get_live.status_code == 200
+    assert res_get_live.json()["mode"] == "LIVE"
+    assert res_get_live.json()["symbol"] == "INFY"
+
+    # 4. Switch to SIMULATOR mode
+    res_sim = client.post("/api/market/mode?mode=SIMULATOR")
+    assert res_sim.status_code == 200
+    data_sim = res_sim.json()
+    assert data_sim["status"] == "success"
+    assert data_sim["mode"] == "SIMULATOR"
+    assert data_sim["is_running"] is False
+    assert live_service.mode == "SIMULATOR"
+    assert live_service.is_running is False
+
+    # 5. Invalid mode error check
+    res_invalid = client.post("/api/market/mode?mode=INVALID")
+    assert res_invalid.status_code == 400
+
+    # Ensure clean state
+    live_service.stop()
+
+
+@pytest.mark.asyncio
+async def test_get_candles_in_live_mode():
+    """Verify get_candles returns records from live_service when mode is LIVE."""
+    from unittest.mock import patch
+    from backend.data.live_market_service import live_service
+
+    client = TestClient(app)
+    fake_candles = [
+        {"timestamp": "2026-09-21 11:30:00", "open": 200.0, "high": 205.0, "low": 199.0, "close": 204.0, "volume": 1200.0, "symbol": "RELIANCE", "ema20": 202.0}
+    ]
+
+    try:
+        live_service.start("RELIANCE")
+        with patch.object(live_service, "get_latest_candles", return_value=fake_candles) as mock_candles:
+            res = client.get("/api/market/RELIANCE/candles?limit=50")
+            assert res.status_code == 200
+            data = res.json()
+            assert len(data) == 1
+            assert data[0]["close"] == 204.0
+            assert data[0]["symbol"] == "RELIANCE"
+            mock_candles.assert_called_once_with("RELIANCE", interval="5m", limit=50)
+    finally:
+        live_service.stop()
+
+
+@pytest.mark.asyncio
+async def test_live_stream_loop_broadcasts_and_triggers():
+    """Verify _live_stream_loop polls data, updates broker, and broadcasts candle & triggers."""
+    from unittest.mock import MagicMock, patch
+    from backend.data.live_market_service import LiveMarketService
+    from backend.data.market_simulator import simulator
+
+    service = LiveMarketService()
+    dates = pd.date_range("2026-09-21 09:15", periods=30, freq="5min")
+    mock_df = pd.DataFrame({
+        "Open": np.linspace(100, 110, 30),
+        "High": np.linspace(101, 111, 30),
+        "Low": np.linspace(99, 109, 30),
+        "Close": np.linspace(100.5, 110.5, 30),
+        "Volume": [1000] * 30,
+        "Dividends": [0.0] * 30,
+        "Stock Splits": [0.0] * 30
+    }, index=dates)
+
+    q = simulator.subscribe()
+
+    with patch("yfinance.Ticker") as mock_ticker_cls, \
+         patch("backend.paper.paper_broker.paper_broker.update_market_price") as mock_broker_update:
+
+        mock_instance = MagicMock()
+        mock_instance.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_instance
+
+        mock_broker_update.return_value = [
+            {"type": "BREAKEVEN_TRAILED", "symbol": "RELIANCE", "breakeven_price": 100.0, "current_price": 100.3},
+            {"type": "AUTO_EXIT", "symbol": "RELIANCE", "side": "BUY", "quantity": 10, "exit_price": 110.0, "reason": "Target Hit", "pnl": 100.0}
+        ]
+
+        service.poll_interval = 0.01
+        service.start("RELIANCE", "5m")
+
+        # Receive broadcasts from queue
+        msg1 = await asyncio.wait_for(q.get(), timeout=2.0)
+        msg2 = await asyncio.wait_for(q.get(), timeout=2.0)
+        msg3 = await asyncio.wait_for(q.get(), timeout=2.0)
+        service.stop()
+
+        types = {msg1.get("type"), msg2.get("type"), msg3.get("type")}
+        assert "BREAKEVEN_TRAILED" in types
+        assert "AUTO_EXIT_TRIGGERED" in types
+        assert "CANDLE_UPDATE" in types
+        simulator.unsubscribe(q)
+
+

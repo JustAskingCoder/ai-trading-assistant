@@ -1,5 +1,5 @@
 """Paper Broker simulating market/limit orders, position management, and P&L tracking."""
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from backend.database.session import SessionLocal
@@ -250,12 +250,12 @@ class PaperBroker:
                             pos_time = datetime.fromisoformat(pos_time.replace("Z", "+00:00"))
                         except Exception:
                             pass
-                    pos_dt = pos_time.replace(tzinfo=None) if getattr(pos_time, 'tzinfo', None) is not None else pos_time
+                    pos_dt = pos_time.astimezone(timezone.utc).replace(tzinfo=None) if getattr(pos_time, 'tzinfo', None) is not None else pos_time
                     elapsed_sec = (now_utc - pos_dt).total_seconds()
                     if elapsed_sec >= 600.0 and not reason:
                         reason = "10-Min Window Expired"
                     elif candle_time and not reason:
-                        c_time = candle_time.replace(tzinfo=None) if getattr(candle_time, 'tzinfo', None) is not None else candle_time
+                        c_time = candle_time.astimezone(timezone.utc).replace(tzinfo=None) if getattr(candle_time, 'tzinfo', None) is not None else candle_time
                         try:
                             candle_elapsed_min = (c_time - pos_dt).total_seconds() / 60.0
                             if candle_elapsed_min >= 10.0:

@@ -8,6 +8,7 @@ from backend.core.config import settings
 from backend.core.logging import logger
 from backend.database.init_db import init_db
 from backend.data.market_simulator import simulator
+from backend.data.live_market_service import live_service
 from backend.api.routes import market, trading, ai, backtesting, settings as settings_route
 
 
@@ -32,6 +33,7 @@ async def lifespan(app: FastAPI):
 
     yield
     simulator.stop()
+    live_service.stop()
     logger.info("Shutting down %s.", settings.PROJECT_NAME)
 
 
@@ -67,7 +69,8 @@ def health_check():
         "version": settings.VERSION,
         "mode": settings.TRADING_MODE,
         "database": "connected",
-        "simulator_running": simulator.is_running
+        "simulator_running": simulator.is_running,
+        "live_running": live_service.is_running
     }
 
 

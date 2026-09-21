@@ -11,6 +11,8 @@ export const api = {
     client.get(`/market/${symbol}/candles`, { params: { interval, limit } }).then(r => r.data),
   getOverview: (symbol: string) =>
     client.get(`/market/${symbol}`).then(r => r.data),
+  getMarketMode: () => client.get('/market/mode').then(r => r.data),
+  setMarketMode: (mode: 'LIVE' | 'SIMULATOR', symbol?: string) => client.post('/market/mode', null, { params: { mode, symbol } }).then(r => r.data),
   getPortfolio: (): Promise<PortfolioData> =>
     client.get('/portfolio').then(r => r.data),
   resetPortfolio: () => client.post('/portfolio/reset').then(r => r.data),

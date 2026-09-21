@@ -5,9 +5,10 @@ import { CandleData } from '../../types';
 interface ChartProps {
   data: CandleData[];
   symbol: string;
+  marketMode?: 'LIVE' | 'SIMULATOR';
 }
 
-export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol }) => {
+export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMode = 'SIMULATOR' }) => {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -166,10 +167,17 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol }) => {
         <div className="flex items-center gap-3">
           <span className="text-xl font-bold tracking-tight text-white">{symbol}</span>
           <span className="rounded bg-dark-700 px-2 py-0.5 text-xs font-semibold text-slate-300">5m NSE</span>
-          <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
-            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-            Simulated Feed
-          </span>
+          {marketMode === 'LIVE' ? (
+            <span className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-xs font-bold text-rose-400 border border-rose-500/20">
+              <span className="h-2 w-2 rounded-full bg-rose-500 animate-pulse"></span>
+              ● LIVE REAL-TIME NSE FEED
+            </span>
+          ) : (
+            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+              Simulated Feed
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-4 text-xs">
           <span className="flex items-center gap-1.5 font-medium text-sky-400">

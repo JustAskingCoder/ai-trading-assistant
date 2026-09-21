@@ -44,6 +44,16 @@ export default function App() {
   // Simulator state
   const [simRunning, setSimRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(2.0);
+  const [marketMode, setMarketMode] = useState<'LIVE' | 'SIMULATOR'>('SIMULATOR');
+
+  // Query initial market mode
+  useEffect(() => {
+    api.getMarketMode()
+      .then(res => {
+        if (res?.mode) setMarketMode(res.mode);
+      })
+      .catch(() => {});
+  }, []);
 
   // Modals
   const [orderModalOpen, setOrderModalOpen] = useState(false);
@@ -176,6 +186,23 @@ export default function App() {
     } catch (e) {
       console.error('Simulator control error:', e);
     }
+  };
+
+  // Switch Market Feed Mode
+  const handleSwitchMode = async (newMode: 'LIVE' | 'SIMULATOR') => {
+    try {
+      await api.setMarketMode(newMode, symbol);
+    } catch (e) {
+      console.warn('Backend setMarketMode error (fallback applied):', e);
+    }
+    setMarketMode(newMode);
+    setOrderAlert({
+      type: 'success',
+      message: newMode === 'LIVE'
+        ? '📡 Connected to LIVE NSE real-time data stream!'
+        : '🎞 Switched to Historical Simulator mode.'
+    });
+    fetchData();
   };
 
   // Kill Switch Toggle
@@ -340,10 +367,17 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-extrabold tracking-tight text-white">AI Trading Assistant</h1>
-              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                ONLINE
-              </span>
+              {marketMode === 'LIVE' ? (
+                <span className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-400 border border-rose-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                  ● LIVE NSE FEED
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  ONLINE
+                </span>
+              )}
               <span className="rounded bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 text-[11px] font-bold text-sky-400">
                 PAPER MODE
               </span>
@@ -354,6 +388,34 @@ export default function App() {
 
         {/* Simulator & Kill Switch Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Mode Selector Pill */}
+          <div className="flex items-center gap-1 rounded-lg bg-dark-700/80 p-1 border border-dark-600">
+            <button
+              onClick={() => handleSwitchMode('SIMULATOR')}
+              className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                marketMode === 'SIMULATOR'
+                  ? 'bg-indigo-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              🎞 Replay Sim
+            </button>
+            <button
+              onClick={() => handleSwitchMode('LIVE')}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                marketMode === 'LIVE'
+                  ? 'bg-rose-600 text-white shadow'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+              🔴 LIVE NSE
+            </button>
+          </div>
+
           {/* Simulator Controls */}
           <div className="flex items-center gap-1 rounded-xl border border-dark-600 bg-dark-900/80 p-1">
             <button
@@ -490,7 +552,7 @@ export default function App() {
       {activeTab === 'live' ? (
         <div className="space-y-5">
           {/* Main Candlestick Chart */}
-          <CandlestickChart data={candles} symbol={symbol} />
+          <CandlestickChart data={candles} symbol={symbol} marketMode={marketMode} />
 
           {/* Intelligence & Signal Deck */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

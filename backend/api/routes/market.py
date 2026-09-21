@@ -1,5 +1,5 @@
 """Market data and simulator API routes."""
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
 import io
@@ -8,6 +8,7 @@ from backend.database.session import get_db
 from backend.database.models import Instrument, Candle
 from backend.data.csv_loader import load_csv_to_dataframe
 from backend.data.market_simulator import simulator
+from backend.data.live_market_service import live_service
 from backend.indicators.engine import calculate_indicators, get_latest_indicators_summary
 from backend.patterns.engine import detect_all_patterns
 from backend.core.logging import logger
@@ -81,8 +82,66 @@ async def upload_csv_data(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/market/mode")
+def get_market_mode():
+    return {
+        "mode": live_service.mode,
+        "is_running": live_service.is_running,
+        "symbol": live_service.symbol
+    }
+
+
+@router.post("/market/mode")
+async def set_market_mode(
+    mode: str = Query("LIVE"),
+    symbol: str = Query("RELIANCE")
+):
+    target_mode = mode.upper()
+    if target_mode == "LIVE":
+        if simulator.is_running:
+            simulator.stop()
+        live_service.start(symbol=symbol)
+    elif target_mode == "SIMULATOR":
+        if live_service.is_running:
+            live_service.stop()
+        live_service.mode = "SIMULATOR"
+    else:
+        raise HTTPException(status_code=400, detail="Invalid mode. Must be 'LIVE' or 'SIMULATOR'.")
+
+    return {
+        "status": "success",
+        "mode": live_service.mode,
+        "is_running": live_service.is_running,
+        "symbol": live_service.symbol
+    }
+
+
 @router.get("/market/{symbol}")
 def get_market_overview(symbol: str, db: Session = Depends(get_db)):
+    if live_service.mode == "LIVE":
+        try:
+            live_candles = live_service.get_latest_candles(symbol, limit=2)
+            if live_candles:
+                curr = live_candles[-1]
+                prev = live_candles[-2] if len(live_candles) > 1 else curr
+                c_change = curr["close"] - prev["close"]
+                c_pct = (c_change / prev["close"] * 100.0) if prev["close"] > 0 else 0.0
+                return {
+                    "symbol": symbol,
+                    "company_name": symbol,
+                    "exchange": "NSE",
+                    "price": round(curr["close"], 2),
+                    "change": round(c_change, 2),
+                    "change_percentage": round(c_pct, 2),
+                    "open": round(curr["open"], 2),
+                    "high": round(curr["high"], 2),
+                    "low": round(curr["low"], 2),
+                    "volume": curr["volume"],
+                    "timestamp": str(curr["timestamp"])
+                }
+        except Exception as e:
+            logger.warning("Could not get live market overview: %s", e)
+
     instrument = db.query(Instrument).filter(Instrument.symbol == symbol).first()
     if not instrument:
         raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found.")
@@ -116,6 +175,9 @@ def get_market_overview(symbol: str, db: Session = Depends(get_db)):
 
 @router.get("/market/{symbol}/candles")
 def get_candles(symbol: str, interval: str = "5m", limit: int = 300, db: Session = Depends(get_db)):
+    if live_service.mode == "LIVE":
+        return live_service.get_latest_candles(symbol, interval=interval, limit=limit)
+
     instrument = db.query(Instrument).filter(Instrument.symbol == symbol).first()
     if not instrument:
         return []
@@ -174,6 +236,8 @@ def get_indicators(symbol: str, interval: str = "5m", db: Session = Depends(get_
 async def control_simulator(action: str, speed: float = 1.0):
     act = action.lower()
     if act == "start":
+        if live_service.is_running:
+            live_service.stop()
         simulator.start(speed)
     elif act == "pause":
         simulator.pause()
