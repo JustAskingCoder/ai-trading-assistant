@@ -32,6 +32,7 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                   <th className="py-2">LTP</th>
                   <th className="py-2">Stop Loss</th>
                   <th className="py-2">Target</th>
+                  <th className="py-2">Window</th>
                   <th className="py-2 text-right">Unrealized P&L</th>
                   {onClosePosition && <th className="py-2 text-right">Action</th>}
                 </tr>
@@ -58,6 +59,11 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       <td className="py-2.5">
                         <span className="text-emerald-400 font-semibold">
                           {p.target ? `₹${p.target.toFixed(2)}` : '—'}
+                        </span>
+                      </td>
+                      <td className="py-2.5">
+                        <span className="rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                          ⏱ 10m Max
                         </span>
                       </td>
                       <td className={`py-2.5 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>

@@ -101,12 +101,20 @@ export default function App() {
         const msg = JSON.parse(event.data);
         if (msg.type === 'AUTO_EXIT_TRIGGERED') {
           const data = msg.data || msg;
-          const isTarget = data.reason === 'Target Hit';
-          setOrderAlert({
-            type: isTarget ? 'success' : 'error',
-            message: `${isTarget ? '🎯 Target Hit!' : '🛑 Stop Loss Hit!'} Auto-exited ${data.quantity} shares of ${data.symbol} @ ₹${data.exit_price?.toFixed(2)} (${data.pnl >= 0 ? '+' : ''}₹${data.pnl?.toFixed(2)})`
-          });
-          loadPortfolioData();
+          if (data.reason === '10-Min Window Expired') {
+            setOrderAlert({
+              type: 'error',
+              message: `⏰ 10-Min Window Expired! Auto-exited ${data.quantity} shares of ${data.symbol} @ ₹${data.exit_price?.toFixed(2)} (${data.pnl >= 0 ? '+' : ''}₹${data.pnl?.toFixed(2)})`
+            });
+            loadPortfolioData();
+          } else {
+            const isTarget = data.reason === 'Target Hit';
+            setOrderAlert({
+              type: isTarget ? 'success' : 'error',
+              message: `${isTarget ? '🎯 Target Hit!' : '🛑 Stop Loss Hit!'} Auto-exited ${data.quantity} shares of ${data.symbol} @ ₹${data.exit_price?.toFixed(2)} (${data.pnl >= 0 ? '+' : ''}₹${data.pnl?.toFixed(2)})`
+            });
+            loadPortfolioData();
+          }
         } else if (msg.type === 'CANDLE_UPDATE') {
           const newCandle: CandleData = {
             timestamp: msg.timestamp,

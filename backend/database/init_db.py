@@ -20,6 +20,8 @@ def init_db():
                 conn.execute(text("ALTER TABLE positions ADD COLUMN stop_loss FLOAT"))
             if "target" not in existing_cols:
                 conn.execute(text("ALTER TABLE positions ADD COLUMN target FLOAT"))
+            if "entry_time" not in existing_cols:
+                conn.execute(text("ALTER TABLE positions ADD COLUMN entry_time TIMESTAMP"))
             conn.commit()
         except Exception as e:
             logger.warning("Could not verify/alter positions columns: %s", e)

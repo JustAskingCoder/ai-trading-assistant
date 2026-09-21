@@ -104,9 +104,11 @@ class MarketSimulator:
                 candle = self.data.iloc[self.current_index]
                 symbol = str(candle.get("symbol", "ASSET"))
                 close_p = float(candle["close"])
+                raw_ts = candle.get("timestamp")
+                candle_dt = pd.to_datetime(raw_ts).to_pydatetime() if pd.notnull(raw_ts) else None
 
                 # Update paper positions
-                auto_exits = paper_broker.update_market_price(symbol, close_p)
+                auto_exits = paper_broker.update_market_price(symbol, close_p, candle_time=candle_dt)
                 if auto_exits:
                     for exit_event in auto_exits:
                         await manager.broadcast({

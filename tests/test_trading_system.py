@@ -1,5 +1,6 @@
 """Comprehensive test suite for AI Trading Assistant."""
 import asyncio
+from datetime import datetime, timedelta
 import pytest
 import pandas as pd
 import numpy as np
@@ -464,5 +465,65 @@ def test_investment_cap_and_risk_limits():
     assert "Insufficient cash" in reason
 
 
+def test_ten_minute_window_auto_exit():
+    """Verify when position reaches 10 minutes without hitting SL or Target, update_market_price auto-closes it with reason '10-Min Window Expired'."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        order_res = paper_broker.place_order(
+            symbol="TEST_EXPIRE",
+            side="BUY",
+            quantity=5,
+            price=100.0,
+            stop_loss=90.0,
+            target=120.0,
+            db=db
+        )
+        assert order_res["status"] == "FILLED"
 
+        pos = db.query(Position).filter(Position.symbol == "TEST_EXPIRE").first()
+        assert pos is not None
+        assert pos.entry_time is not None
 
+        # Check API returns entry_time and window_minutes
+        client = TestClient(app)
+        api_res = client.get("/api/positions")
+        assert api_res.status_code == 200
+        pos_data = [p for p in api_res.json() if p["symbol"] == "TEST_EXPIRE"][0]
+        assert pos_data["entry_time"] is not None
+        assert pos_data["window_minutes"] == 10
+
+        entry_t = pos.entry_time
+
+        # 1. Check at 5 minutes: price 105 (no SL, no target hit) -> should NOT trigger exit
+        triggers_5m = paper_broker.update_market_price("TEST_EXPIRE", 105.0, candle_time=entry_t + timedelta(minutes=5), db=db)
+        assert len(triggers_5m) == 0
+
+        # Position still open
+        pos_still_open = db.query(Position).filter(Position.symbol == "TEST_EXPIRE").first()
+        assert pos_still_open is not None
+
+        # 2. Check at 10 minutes: price 105 -> should trigger '10-Min Window Expired'
+        triggers_10m = paper_broker.update_market_price("TEST_EXPIRE", 105.0, candle_time=entry_t + timedelta(minutes=10), db=db)
+        assert len(triggers_10m) == 1
+        trig = triggers_10m[0]
+        assert trig["type"] == "AUTO_EXIT"
+        assert trig["symbol"] == "TEST_EXPIRE"
+        assert trig["reason"] == "10-Min Window Expired"
+        assert trig["exit_price"] == 105.0
+        assert trig["pnl"] == 25.0  # (105 - 100) * 5
+
+        # Verify position is closed
+        closed_pos = db.query(Position).filter(Position.symbol == "TEST_EXPIRE").first()
+        assert closed_pos is None
+
+        # Verify trade recorded with Bracket Auto-Exit (10-Min Window Expired)
+        trade = db.query(Trade).filter(Trade.symbol == "TEST_EXPIRE").order_by(Trade.id.desc()).first()
+        assert trade is not None
+        assert trade.exit_price == 105.0
+        assert trade.strategy == "Bracket Auto-Exit (10-Min Window Expired)"
+        assert trade.pnl == 25.0
+        assert trade.entry_time == entry_t
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()

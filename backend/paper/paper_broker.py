@@ -110,6 +110,8 @@ class PaperBroker:
                     pos.current_price = price
                     pos.stop_loss = stop_loss
                     pos.target = target
+                    if not pos.entry_time:
+                        pos.entry_time = now
                 else:
                     pos = Position(
                         symbol=symbol,
@@ -119,7 +121,8 @@ class PaperBroker:
                         current_price=price,
                         unrealized_pnl=0.0,
                         stop_loss=stop_loss,
-                        target=target
+                        target=target,
+                        entry_time=now
                     )
                     db.add(pos)
 
@@ -147,7 +150,7 @@ class PaperBroker:
                         target=target,
                         pnl=pnl,
                         pnl_percentage=pnl_pct,
-                        entry_time=order.created_at,
+                        entry_time=pos.entry_time if getattr(pos, 'entry_time', None) else order.created_at,
                         exit_time=now,
                         strategy="Manual / Strategy"
                     )
@@ -177,9 +180,15 @@ class PaperBroker:
             if close_session:
                 db.close()
 
-    def update_market_price(self, symbol: str, current_price: float, db: Optional[Session] = None) -> List[Dict[str, Any]]:
+    def update_market_price(
+        self,
+        symbol: str,
+        current_price: float,
+        candle_time: Optional[datetime] = None,
+        db: Optional[Session] = None
+    ) -> List[Dict[str, Any]]:
         """
-        Update unrealized P&L and check if any open position hit its stop-loss or target.
+        Update unrealized P&L and check if any open position hit its stop-loss, target, or 10-minute window limit.
         Returns list of any auto-triggered exits.
         """
         close_session = False
@@ -210,6 +219,23 @@ class PaperBroker:
                         reason = 'Stop Loss Hit'
                     elif pos.target is not None and current_price <= pos.target:
                         reason = 'Target Hit'
+
+                if pos.entry_time:
+                    pos_time = pos.entry_time
+                    if isinstance(pos_time, str):
+                        try:
+                            pos_time = datetime.fromisoformat(pos_time.replace("Z", "+00:00"))
+                        except Exception:
+                            pass
+                    time_ref = candle_time if (candle_time and isinstance(candle_time, datetime)) else datetime.utcnow()
+                    time_ref_cmp = time_ref.replace(tzinfo=None) if time_ref.tzinfo is not None else time_ref
+                    entry_time_cmp = pos_time.replace(tzinfo=None) if getattr(pos_time, 'tzinfo', None) is not None else pos_time
+                    try:
+                        elapsed_min = (time_ref_cmp - entry_time_cmp).total_seconds() / 60.0
+                    except Exception:
+                        elapsed_min = 0.0
+                    if elapsed_min >= 10.0 and not reason:
+                        reason = "10-Min Window Expired"
 
                 if reason is not None:
                     exit_record = {

@@ -63,6 +63,8 @@ export interface PositionData {
   target?: number | null;
   unrealized_pnl: number;
   pnl_percentage: number;
+  entry_time?: string | null;
+  window_minutes?: number;
 }
 
 export interface TradeData {

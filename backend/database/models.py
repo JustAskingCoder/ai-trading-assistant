@@ -131,6 +131,7 @@ class Position(Base):
     unrealized_pnl = Column(Float, default=0.0)
     stop_loss = Column(Float, nullable=True)
     target = Column(Float, nullable=True)
+    entry_time = Column(DateTime, default=datetime.utcnow)
 
 
 class Trade(Base):

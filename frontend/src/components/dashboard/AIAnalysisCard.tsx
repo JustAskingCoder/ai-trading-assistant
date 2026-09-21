@@ -134,6 +134,9 @@ export const AIAnalysisCard: React.FC<Props> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-400" />
             <h3 className="font-bold text-white text-base tracking-tight">{analysis.setup}</h3>
+            <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 border border-amber-500/20">
+              ⏱ 10m Max Window
+            </span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-400">
