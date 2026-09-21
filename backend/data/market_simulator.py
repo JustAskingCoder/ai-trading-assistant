@@ -1,7 +1,7 @@
 """Market replay simulator broadcasting candle ticks via WebSocket."""
 import asyncio
 import pandas as pd
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 from backend.indicators.engine import calculate_indicators, get_latest_indicators_summary
 from backend.patterns.engine import detect_all_patterns
 from backend.strategies.base_strategy import BreakoutStrategy, MomentumStrategy, TrendFollowingStrategy
@@ -16,7 +16,7 @@ class MarketSimulator:
         self.speed = 1.0  # 1x, 2x, 5x, 10x, 50x
         self.current_index = 0
         self.data: Optional[pd.DataFrame] = None
-        self.subscribers: List[asyncio.Queue] = []
+        self.subscribers: List[Tuple[asyncio.Queue, Optional[asyncio.AbstractEventLoop]]] = []
         self.strategies = [BreakoutStrategy(), MomentumStrategy(), TrendFollowingStrategy()]
         self._task: Optional[asyncio.Task] = None
 
@@ -29,17 +29,23 @@ class MarketSimulator:
 
     def subscribe(self) -> asyncio.Queue:
         q = asyncio.Queue()
-        self.subscribers.append(q)
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        self.subscribers.append((q, loop))
         return q
 
     def unsubscribe(self, q: asyncio.Queue):
-        if q in self.subscribers:
-            self.subscribers.remove(q)
+        self.subscribers = [(item_q, item_loop) for item_q, item_loop in self.subscribers if item_q != q]
 
     async def _broadcast(self, message: Dict[str, Any]):
-        for q in list(self.subscribers):
+        for q, loop in list(self.subscribers):
             try:
-                await q.put(message)
+                if loop and loop.is_running():
+                    loop.call_soon_threadsafe(q.put_nowait, message)
+                else:
+                    q.put_nowait(message)
             except Exception:
                 pass
 

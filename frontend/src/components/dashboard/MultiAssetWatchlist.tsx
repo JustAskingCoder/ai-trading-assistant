@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WatchlistQuote } from '../../types';
 import { api } from '../../services/api';
 import {
@@ -193,6 +193,11 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
+  const onQuotesUpdateRef = useRef(onQuotesUpdate);
+  useEffect(() => {
+    onQuotesUpdateRef.current = onQuotesUpdate;
+  });
+
   const fetchWatchlist = useCallback(async (isManual = false) => {
     if (isManual) setLoading(true);
     try {
@@ -201,17 +206,16 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
         const enriched = data.map(enrichQuote);
         setQuotes(enriched);
         setLastUpdated(new Date());
-        onQuotesUpdate?.(enriched);
+        onQuotesUpdateRef.current?.(enriched);
       }
     } catch (e) {
       console.debug('MultiAssetWatchlist polling (using fallback):', e);
     } finally {
       if (isManual) setLoading(false);
     }
-  }, [onQuotesUpdate]);
+  }, []);
 
   useEffect(() => {
-    onQuotesUpdate?.(quotes);
     fetchWatchlist();
     const timer = setInterval(() => {
       fetchWatchlist();

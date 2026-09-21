@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from './services/api';
 import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus } from './types';
 import { CandlestickChart } from './components/charts/CandlestickChart';
@@ -63,6 +63,12 @@ export default function App() {
         if (res?.mode) setMarketMode(res.mode);
       })
       .catch(() => {});
+
+    api.getSimulatorStatus()
+      .then(sim => {
+        if (sim) setSimRunning(sim.is_running && !sim.is_paused);
+      })
+      .catch(() => {});
   }, []);
 
   // Modals
@@ -91,18 +97,20 @@ export default function App() {
   // Load initial data
   const fetchData = async () => {
     try {
-      const [c, p, pos, tr, r] = await Promise.all([
+      const [c, p, pos, tr, r, sim] = await Promise.all([
         api.getCandles(symbol, '5m', 200),
         api.getPortfolio(),
         api.getPositions(),
         api.getTrades(),
-        api.getRiskStatus()
+        api.getRiskStatus(),
+        api.getSimulatorStatus().catch(() => null)
       ]);
       setCandles(c);
       setPortfolio(p);
       setPositions(pos);
       setTrades(tr);
       setRiskStatus(r);
+      if (sim) setSimRunning(sim.is_running && !sim.is_paused);
     } catch (e) {
       console.error('Error fetching initial data:', e);
     }
@@ -209,11 +217,17 @@ export default function App() {
       console.warn('Backend setMarketMode error (fallback applied):', e);
     }
     setMarketMode(newMode);
+    if (newMode === 'SIMULATOR') {
+      try {
+        const simRes = await api.controlSimulator('start', simSpeed);
+        setSimRunning(simRes.is_running && !simRes.is_paused);
+      } catch (e) {}
+    }
     setOrderAlert({
       type: 'success',
       message: newMode === 'LIVE'
         ? '📡 Connected to LIVE NSE real-time data stream!'
-        : '🎞 Switched to Historical Simulator mode.'
+        : '🎞 Switched to Historical Simulator mode (Replay Started).'
     });
     fetchData();
   };
@@ -280,44 +294,57 @@ export default function App() {
     }
   };
 
-  // Sync quotes from MultiAssetWatchlist into App state
-  const handleWatchlistQuotesUpdate = (quotes: WatchlistQuote[]) => {
+  // Sync quotes from MultiAssetWatchlist into App state with deduplication
+  const handleWatchlistQuotesUpdate = useCallback((quotes: WatchlistQuote[]) => {
     watchlistQuotesRef.current = quotes;
     const currentQuote = quotes.find(q => q.symbol === symbol);
-    if (currentQuote) {
-      if (currentQuote.action === 'WAIT' || currentQuote.signal === 'HOLD') {
-        setActiveSignal(null);
-      } else if (currentQuote.action === 'BUY' || currentQuote.action === 'SELL') {
-        const p = Number(currentQuote.entry_price || currentQuote.price);
-        const isForex = currentQuote.market === 'FOREX';
-        const dec = isForex ? 4 : 2;
-        const riskAmt =
-          currentQuote.max_risk && currentQuote.max_risk > 0
-            ? Number(currentQuote.max_risk)
-            : Number((p * 0.005).toFixed(dec));
-        const rewardAmt = Math.max(riskAmt * 1.2, Number((p * 0.006).toFixed(dec)));
-        const isSell = currentQuote.action === 'SELL';
-        let sl = currentQuote.stop_loss;
-        let tgt = currentQuote.target;
-        if (!sl || !tgt || (Math.abs(tgt - p) / (Math.abs(p - sl) + 1e-6)) < 0.8) {
-          sl = isSell ? Number((p + riskAmt).toFixed(dec)) : Number((p - riskAmt).toFixed(dec));
-          tgt = isSell ? Number((p - rewardAmt).toFixed(dec)) : Number((p + rewardAmt).toFixed(dec));
+    if (!currentQuote) return;
+
+    if (currentQuote.action === 'WAIT' || currentQuote.signal === 'HOLD') {
+      setActiveSignal(prev => (prev === null ? prev : null));
+    } else if (currentQuote.action === 'BUY' || currentQuote.action === 'SELL') {
+      const p = Number(currentQuote.entry_price || currentQuote.price);
+      const isForex = currentQuote.market === 'FOREX';
+      const dec = isForex ? 4 : 2;
+      const riskAmt =
+        currentQuote.max_risk && currentQuote.max_risk > 0
+          ? Number(currentQuote.max_risk)
+          : Number((p * 0.005).toFixed(dec));
+      const rewardAmt = Math.max(riskAmt * 1.2, Number((p * 0.006).toFixed(dec)));
+      const isSell = currentQuote.action === 'SELL';
+      let sl = currentQuote.stop_loss;
+      let tgt = currentQuote.target;
+      if (!sl || !tgt || (Math.abs(tgt - p) / (Math.abs(p - sl) + 1e-6)) < 0.8) {
+        sl = isSell ? Number((p + riskAmt).toFixed(dec)) : Number((p - riskAmt).toFixed(dec));
+        tgt = isSell ? Number((p - rewardAmt).toFixed(dec)) : Number((p + rewardAmt).toFixed(dec));
+      }
+
+      setActiveSignal(prev => {
+        if (
+          prev &&
+          prev.symbol === currentQuote.symbol &&
+          prev.signal === currentQuote.action &&
+          Math.abs(prev.entry_price - p) < 0.0001 &&
+          Math.abs(prev.stop_loss - sl) < 0.0001 &&
+          Math.abs(prev.target - tgt) < 0.0001
+        ) {
+          return prev; // Skip re-render if signal parameters haven't changed
         }
-        setActiveSignal({
+        return {
           symbol: currentQuote.symbol,
           timestamp: new Date().toISOString(),
           strategy: currentQuote.strategy || 'Live Scalp Strategy',
-          signal: currentQuote.action,
+          signal: currentQuote.action as 'BUY' | 'SELL',
           confidence: currentQuote.confidence || 0.85,
           entry_price: p,
           stop_loss: sl,
           target: tgt,
           risk_reward: currentQuote.risk_reward || 1.2,
           reason: currentQuote.reason || `${currentQuote.action} Scalp Setup`
-        });
-      }
+        };
+      });
     }
-  };
+  }, [symbol]);
 
   // 1-Click trade execution directly from Multi-Asset Scanner card or decision matrix
   const handleTradeFromWatchlist = async (quote: WatchlistQuote) => {
@@ -619,6 +646,28 @@ export default function App() {
               </span>
               🔴 LIVE NSE
             </button>
+          </div>
+
+          {/* Real-time Status Badge */}
+          <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-dark-600 bg-dark-900/90 text-xs font-semibold">
+            {marketMode === 'LIVE' ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span className="text-emerald-400 font-bold tracking-wider">LIVE FEED ONLINE</span>
+                <span className="text-slate-400 text-[11px]">({zerodhaStatus?.is_connected ? 'Zerodha Kite' : 'NSE Intraday'})</span>
+              </>
+            ) : (
+              <>
+                <span className={`h-2 w-2 rounded-full ${simRunning ? 'bg-indigo-400 animate-pulse' : 'bg-amber-400'}`}></span>
+                <span className={simRunning ? 'text-indigo-400 font-bold' : 'text-amber-400 font-bold'}>
+                  {simRunning ? 'SIMULATOR PLAYING' : 'SIMULATOR PAUSED'}
+                </span>
+                {!simRunning && <span className="text-slate-500 text-[10px]">(Click "Start" to Replay)</span>}
+              </>
+            )}
           </div>
 
           {/* Simulator Controls */}

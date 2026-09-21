@@ -114,6 +114,8 @@ class LiveMarketService:
         self.strategies = [BreakoutStrategy(), MomentumStrategy(), TrendFollowingStrategy()]
         self._quote_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
         self._cache_ttl: float = 6.0
+        self._candle_cache: Dict[str, Tuple[float, List[Dict[str, Any]], Optional[pd.DataFrame]]] = {}
+        self._candle_cache_ttl: float = 10.0
 
     @property
     def mode(self) -> str:
@@ -149,6 +151,15 @@ class LiveMarketService:
         limit: int = 200
     ) -> Tuple[List[Dict[str, Any]], Optional[pd.DataFrame]]:
         """Synchronously fetch intraday candles from yfinance, format, and compute indicators."""
+        cache_key = f"{symbol.upper()}:{interval}:{limit}"
+        now = time.time()
+        if cache_key in self._candle_cache:
+            ts, recs, ind_df = self._candle_cache[cache_key]
+            if now - ts < self._candle_cache_ttl and recs and ind_df is not None:
+                # Return deep copy of records so caller mutations do not pollute cache
+                import copy
+                return copy.deepcopy(recs), ind_df
+
         yf_sym = self.to_yf_symbol(symbol)
         ticker = yfinance.Ticker(yf_sym)
         hist = ticker.history(period="1d", interval=interval)
@@ -187,6 +198,9 @@ class LiveMarketService:
             if "timestamp" in r and r["timestamp"] is not None:
                 r["timestamp"] = str(r["timestamp"])
 
+        if records and ind_df is not None:
+            self._candle_cache[cache_key] = (now, records, ind_df)
+
         return records, ind_df
 
     def get_latest_candles(
@@ -218,8 +232,9 @@ class LiveMarketService:
             return []
 
     def clear_cache(self):
-        """Clear cached quotes."""
+        """Clear cached quotes and candles."""
         self._quote_cache.clear()
+        self._candle_cache.clear()
 
     def _build_zerodha_quote_payload(
         self,
