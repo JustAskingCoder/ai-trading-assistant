@@ -118,3 +118,17 @@ export interface RiskStatus {
     severity: string;
   }>;
 }
+
+export interface WatchlistQuote {
+  symbol: string;
+  name?: string;
+  market: 'NSE' | 'FOREX';
+  price: number;
+  change?: number;
+  change_percentage: number;
+  high?: number;
+  low?: number;
+  volume?: number;
+  signal?: 'BUY' | 'SELL' | 'HOLD';
+  indicators?: Record<string, any>;
+}

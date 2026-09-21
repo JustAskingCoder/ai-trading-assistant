@@ -14,6 +14,7 @@ from backend.data.market_simulator import simulator
 from backend.core.logging import logger
 
 SYMBOL_MAP = {
+    # Indian Equities & Indices
     "RELIANCE": "RELIANCE.NS",
     "TCS": "TCS.NS",
     "INFY": "INFY.NS",
@@ -30,17 +31,72 @@ SYMBOL_MAP = {
     "MARUTI": "MARUTI.NS",
     "NIFTY": "^NSEI",
     "BANKNIFTY": "^NSEBANK",
+    # Forex Currency Pairs, Commodities & Crypto
+    "USDINR": "USDINR=X",
+    "EURUSD": "EURUSD=X",
+    "GBPUSD": "GBPUSD=X",
+    "USDJPY": "JPY=X",
+    "EURINR": "EURINR=X",
+    "GBPINR": "GBPINR=X",
+    "AUDUSD": "AUDUSD=X",
+    "GOLD": "GC=F",
+    "BTCUSD": "BTC-USD",
+}
+
+FOREX_SYMBOLS = {
+    "USDINR", "EURUSD", "GBPUSD", "USDJPY", "EURINR", "GBPINR", "AUDUSD",
+    "GOLD", "BTCUSD", "GC=F", "BTC-USD", "JPY=X"
+}
+
+SYMBOL_NAMES = {
+    "RELIANCE": "Reliance Industries",
+    "TCS": "Tata Consultancy Services",
+    "INFY": "Infosys Ltd",
+    "HDFCBANK": "HDFCBANK",
+    "ICICIBANK": "ICICI Bank",
+    "SBIN": "State Bank of India",
+    "BHARTIARTL": "Bharti Airtel",
+    "ITC": "ITC Limited",
+    "KOTAKBANK": "Kotak Mahindra Bank",
+    "LT": "Larsen & Toubro",
+    "WIPRO": "Wipro Limited",
+    "TATAMOTORS": "Tata Motors",
+    "TATASTEEL": "Tata Steel",
+    "MARUTI": "Maruti Suzuki",
+    "NIFTY": "NIFTY 50",
+    "BANKNIFTY": "BANK NIFTY",
+    "USDINR": "USD / INR",
+    "EURUSD": "EUR / USD",
+    "GBPUSD": "GBP / USD",
+    "USDJPY": "USD / JPY",
+    "EURINR": "EUR / INR",
+    "GBPINR": "GBP / INR",
+    "AUDUSD": "AUD / USD",
+    "GOLD": "Gold Futures",
+    "BTCUSD": "Bitcoin / USD",
 }
 
 
+def get_market_category(symbol: str) -> str:
+    """Classify symbol into 'NSE' or 'FOREX'."""
+    clean = symbol.strip().upper().replace("/", "").replace(" ", "").replace("_", "")
+    yf = to_yf_symbol(symbol)
+    if clean in FOREX_SYMBOLS or "=X" in yf or yf in ["GC=F", "BTC-USD"] or "-USD" in yf:
+        return "FOREX"
+    return "NSE"
+
+
 def to_yf_symbol(symbol: str) -> str:
-    """Map common Indian stock symbols to Yahoo Finance ticker notation."""
-    sym = symbol.strip().upper()
-    if sym in SYMBOL_MAP:
-        return SYMBOL_MAP[sym]
-    if "." in sym or "^" in sym or "=" in sym:
-        return sym
-    return f"{sym}.NS"
+    """Map common Indian stock symbols and Forex currency pairs to Yahoo Finance ticker notation."""
+    raw = symbol.strip().upper()
+    if "." in raw or "^" in raw or "=" in raw or "-" in raw:
+        return raw
+
+    clean = raw.replace("/", "").replace(" ", "").replace("_", "")
+    if clean in SYMBOL_MAP:
+        return SYMBOL_MAP[clean]
+
+    return f"{clean}.NS"
 
 
 class LiveMarketService:
@@ -144,6 +200,151 @@ class LiveMarketService:
         except Exception as e:
             logger.warning("LiveMarketService failed to fetch candles for %s: %s", symbol, e)
             return []
+
+    def _fetch_single_quote(self, symbol: str) -> Dict[str, Any]:
+        """Fetch quote, calculate metrics, and evaluate signal for a single symbol."""
+        raw_sym = symbol.strip()
+        clean_sym = raw_sym.upper().replace(" ", "")
+        yf_sym = self.to_yf_symbol(raw_sym)
+        market = get_market_category(raw_sym)
+        name = SYMBOL_NAMES.get(clean_sym.replace("/", ""), clean_sym)
+        is_forex = (market == "FOREX")
+        dec = 4 if is_forex else 2
+
+        try:
+            ticker = yfinance.Ticker(yf_sym)
+            hist = ticker.history(period="1d", interval="5m")
+            if hist is None or hist.empty or len(hist) < 5:
+                hist_fallback = ticker.history(period="5d", interval="5m")
+                if hist_fallback is not None and not hist_fallback.empty:
+                    hist = hist_fallback
+
+            if hist is None or hist.empty:
+                return {
+                    "symbol": clean_sym,
+                    "name": name,
+                    "price": 0.0,
+                    "change": 0.0,
+                    "change_percentage": 0.0,
+                    "open": 0.0,
+                    "high": 0.0,
+                    "low": 0.0,
+                    "volume": 0.0,
+                    "signal": "HOLD",
+                    "market": market,
+                    "indicators": {},
+                    "timestamp": datetime.now().isoformat()
+                }
+
+            df = hist.reset_index()
+            time_col = "Datetime" if "Datetime" in df.columns else ("Date" if "Date" in df.columns else df.columns[0])
+            df = df.rename(columns={
+                time_col: "timestamp",
+                "Open": "open",
+                "High": "high",
+                "Low": "low",
+                "Close": "close",
+                "Volume": "volume"
+            })
+            for col in ["open", "high", "low", "close", "volume"]:
+                if col in df.columns:
+                    df[col] = df[col].astype(float)
+                else:
+                    df[col] = 0.0
+
+            df["timestamp"] = df["timestamp"].astype(str)
+            df["symbol"] = clean_sym
+
+            ind_df = calculate_indicators(df)
+            last_candle = ind_df.iloc[-1]
+            prev_candle = ind_df.iloc[-2] if len(ind_df) > 1 else last_candle
+
+            close_p = float(last_candle["close"])
+            prev_close = float(prev_candle["close"])
+            change = close_p - prev_close
+            change_pct = (change / prev_close * 100.0) if prev_close > 0 else 0.0
+
+            open_p = float(last_candle["open"])
+            high_p = float(ind_df["high"].max())
+            low_p = float(ind_df["low"].min())
+            vol_total = float(ind_df["volume"].sum())
+
+            # Evaluate quick signal ('BUY', 'SELL', or 'HOLD')
+            signal = "HOLD"
+            signals = []
+            if len(ind_df) >= 25:
+                for strat in self.strategies:
+                    sig = strat.evaluate(ind_df, -1)
+                    if sig and "signal" in sig:
+                        signals.append(sig["signal"])
+
+            if "BUY" in signals:
+                signal = "BUY"
+            elif "SELL" in signals:
+                signal = "SELL"
+            else:
+                rsi = last_candle.get("rsi")
+                ema20 = last_candle.get("ema20")
+                ema50 = last_candle.get("ema50")
+                if rsi is not None and pd.notnull(rsi):
+                    if rsi < 35.0 or (ema20 is not None and ema50 is not None and ema20 > ema50 and close_p > ema20):
+                        signal = "BUY"
+                    elif rsi > 65.0 or (ema20 is not None and ema50 is not None and ema20 < ema50 and close_p < ema20):
+                        signal = "SELL"
+
+            return {
+                "symbol": clean_sym,
+                "name": name,
+                "price": round(close_p, dec),
+                "change": round(change, dec),
+                "change_percentage": round(change_pct, 2),
+                "open": round(open_p, dec),
+                "high": round(high_p, dec),
+                "low": round(low_p, dec),
+                "volume": round(vol_total, 2),
+                "signal": signal,
+                "market": market,
+                "indicators": {
+                    "rsi": round(float(last_candle["rsi"]), 2) if pd.notnull(last_candle.get("rsi")) else None,
+                    "ema20": round(float(last_candle["ema20"]), dec) if pd.notnull(last_candle.get("ema20")) else None,
+                    "ema50": round(float(last_candle["ema50"]), dec) if pd.notnull(last_candle.get("ema50")) else None,
+                    "vwap": round(float(last_candle["vwap"]), dec) if pd.notnull(last_candle.get("vwap")) else None,
+                },
+                "timestamp": str(last_candle.get("timestamp", datetime.now().isoformat()))
+            }
+        except Exception as e:
+            logger.warning("Error fetching quote for %s: %s", symbol, e)
+            return {
+                "symbol": clean_sym,
+                "name": name,
+                "price": 0.0,
+                "change": 0.0,
+                "change_percentage": 0.0,
+                "open": 0.0,
+                "high": 0.0,
+                "low": 0.0,
+                "volume": 0.0,
+                "signal": "HOLD",
+                "market": market,
+                "indicators": {},
+                "timestamp": datetime.now().isoformat()
+            }
+
+    def get_watchlist_quotes(self, symbols: List[str]) -> List[Dict[str, Any]]:
+        """Fetch watchlist quotes concurrently for a list of symbols."""
+        if not symbols:
+            return []
+
+        clean_symbols = [s.strip() for s in symbols if s and s.strip()]
+        if not clean_symbols:
+            return []
+
+        from concurrent.futures import ThreadPoolExecutor
+        max_workers = min(len(clean_symbols), 8)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            quotes = list(executor.map(self._fetch_single_quote, clean_symbols))
+
+        return [q for q in quotes if q is not None]
 
     def start(
         self,

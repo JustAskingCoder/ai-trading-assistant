@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal } from '../types';
+import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote } from '../types';
 
 const client = axios.create({
   baseURL: '/api'
@@ -11,6 +11,8 @@ export const api = {
     client.get(`/market/${symbol}/candles`, { params: { interval, limit } }).then(r => r.data),
   getOverview: (symbol: string) =>
     client.get(`/market/${symbol}`).then(r => r.data),
+  getWatchlist: (symbols?: string): Promise<WatchlistQuote[]> =>
+    client.get('/market/watchlist', { params: { symbols } }).then(r => r.data),
   getMarketMode: () => client.get('/market/mode').then(r => r.data),
   setMarketMode: (mode: 'LIVE' | 'SIMULATOR', symbol?: string) => client.post('/market/mode', null, { params: { mode, symbol } }).then(r => r.data),
   getPortfolio: (): Promise<PortfolioData> =>

@@ -1207,3 +1207,99 @@ async def test_live_stream_loop_broadcasts_and_triggers():
         simulator.unsubscribe(q)
 
 
+def test_forex_symbol_mapping():
+    """Verify Forex, Crypto, Commodity symbol mapping and market categorization."""
+    from backend.data.live_market_service import to_yf_symbol, get_market_category
+
+    # Forex pairs
+    assert to_yf_symbol("USDINR") == "USDINR=X"
+    assert to_yf_symbol("USD/INR") == "USDINR=X"
+    assert to_yf_symbol("USD INR") == "USDINR=X"
+    assert to_yf_symbol("EURUSD") == "EURUSD=X"
+    assert to_yf_symbol("EUR/USD") == "EURUSD=X"
+    assert to_yf_symbol("GBPUSD") == "GBPUSD=X"
+    assert to_yf_symbol("GBP/USD") == "GBPUSD=X"
+    assert to_yf_symbol("USDJPY") == "JPY=X"
+    assert to_yf_symbol("EURINR") == "EURINR=X"
+    assert to_yf_symbol("GBPINR") == "GBPINR=X"
+    assert to_yf_symbol("AUDUSD") == "AUDUSD=X"
+    assert to_yf_symbol("GOLD") == "GC=F"
+    assert to_yf_symbol("BTCUSD") == "BTC-USD"
+    assert to_yf_symbol("BTC-USD") == "BTC-USD"
+    assert to_yf_symbol("USDINR=X") == "USDINR=X"
+
+    # Market classifications
+    assert get_market_category("USDINR") == "FOREX"
+    assert get_market_category("USD/INR") == "FOREX"
+    assert get_market_category("EURUSD") == "FOREX"
+    assert get_market_category("GOLD") == "FOREX"
+    assert get_market_category("BTCUSD") == "FOREX"
+    assert get_market_category("RELIANCE") == "NSE"
+    assert get_market_category("TCS") == "NSE"
+    assert get_market_category("INFY") == "NSE"
+
+
+def test_live_service_get_watchlist_quotes_mocked():
+    """Verify get_watchlist_quotes correctly formats multi-asset quote metrics and signals."""
+    from unittest.mock import MagicMock, patch
+    from backend.data.live_market_service import live_service
+
+    dates = pd.date_range("2026-09-21 09:15", periods=30, freq="5min")
+    mock_df = pd.DataFrame({
+        "Open": np.linspace(100, 110, 30),
+        "High": np.linspace(101, 111, 30),
+        "Low": np.linspace(99, 109, 30),
+        "Close": np.linspace(100.5, 110.5, 30),
+        "Volume": [1000] * 30,
+        "Dividends": [0.0] * 30,
+        "Stock Splits": [0.0] * 30
+    }, index=dates)
+
+    with patch("yfinance.Ticker") as mock_ticker_cls:
+        mock_inst = MagicMock()
+        mock_inst.history.return_value = mock_df
+        mock_ticker_cls.return_value = mock_inst
+
+        quotes = live_service.get_watchlist_quotes(["RELIANCE", "USD/INR"])
+        assert len(quotes) == 2
+
+        rel = next(q for q in quotes if q["symbol"] == "RELIANCE")
+        assert rel["market"] == "NSE"
+        assert rel["price"] > 0
+        assert "change" in rel
+        assert "change_percentage" in rel
+        assert "high" in rel
+        assert "low" in rel
+        assert "volume" in rel
+        assert rel["signal"] in ["BUY", "SELL", "HOLD"]
+
+        usdinr = next(q for q in quotes if q["symbol"] == "USD/INR")
+        assert usdinr["market"] == "FOREX"
+        assert usdinr["price"] > 0
+        assert usdinr["signal"] in ["BUY", "SELL", "HOLD"]
+
+
+def test_api_market_watchlist_endpoint():
+    """Verify GET /api/market/watchlist endpoint returns multi-asset quote array."""
+    from unittest.mock import patch
+    from backend.data.live_market_service import live_service
+
+    client = TestClient(app)
+
+    mock_quotes = [
+        {"symbol": "RELIANCE", "price": 1240.0, "change": 5.0, "change_percentage": 0.4, "open": 1235.0, "high": 1245.0, "low": 1230.0, "volume": 100000.0, "signal": "BUY", "market": "NSE", "timestamp": "2026-09-21 12:00:00"},
+        {"symbol": "USDINR", "price": 95.83, "change": -0.01, "change_percentage": -0.01, "open": 95.84, "high": 95.90, "low": 95.70, "volume": 0.0, "signal": "HOLD", "market": "FOREX", "timestamp": "2026-09-21 12:00:00"}
+    ]
+
+    with patch.object(live_service, "get_watchlist_quotes", return_value=mock_quotes) as mock_fn:
+        res = client.get("/api/market/watchlist?symbols=RELIANCE,USDINR")
+        assert res.status_code == 200
+        data = res.json()
+        assert len(data) == 2
+        assert data[0]["symbol"] == "RELIANCE"
+        assert data[0]["market"] == "NSE"
+        assert data[1]["symbol"] == "USDINR"
+        assert data[1]["market"] == "FOREX"
+        mock_fn.assert_called_once_with(["RELIANCE", "USDINR"])
+
+

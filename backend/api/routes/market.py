@@ -8,7 +8,7 @@ from backend.database.session import get_db
 from backend.database.models import Instrument, Candle
 from backend.data.csv_loader import load_csv_to_dataframe
 from backend.data.market_simulator import simulator
-from backend.data.live_market_service import live_service
+from backend.data.live_market_service import live_service, get_market_category, SYMBOL_NAMES
 from backend.indicators.engine import calculate_indicators, get_latest_indicators_summary
 from backend.patterns.engine import detect_all_patterns
 from backend.core.logging import logger
@@ -116,6 +116,12 @@ async def set_market_mode(
     }
 
 
+@router.get("/market/watchlist")
+def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,USDINR,EURUSD")):
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
+    return live_service.get_watchlist_quotes(symbol_list)
+
+
 @router.get("/market/{symbol}")
 def get_market_overview(symbol: str, db: Session = Depends(get_db)):
     if live_service.mode == "LIVE":
@@ -144,6 +150,30 @@ def get_market_overview(symbol: str, db: Session = Depends(get_db)):
 
     instrument = db.query(Instrument).filter(Instrument.symbol == symbol).first()
     if not instrument:
+        try:
+            live_candles = live_service.get_latest_candles(symbol, limit=2)
+            if live_candles:
+                curr = live_candles[-1]
+                prev = live_candles[-2] if len(live_candles) > 1 else curr
+                c_change = curr["close"] - prev["close"]
+                c_pct = (c_change / prev["close"] * 100.0) if prev["close"] > 0 else 0.0
+                is_forex = get_market_category(symbol) == "FOREX"
+                dec = 4 if is_forex else 2
+                return {
+                    "symbol": symbol,
+                    "company_name": SYMBOL_NAMES.get(symbol.upper(), symbol),
+                    "exchange": "FOREX" if is_forex else "NSE",
+                    "price": round(curr["close"], dec),
+                    "change": round(c_change, dec),
+                    "change_percentage": round(c_pct, 2),
+                    "open": round(curr["open"], dec),
+                    "high": round(curr["high"], dec),
+                    "low": round(curr["low"], dec),
+                    "volume": curr["volume"],
+                    "timestamp": str(curr["timestamp"])
+                }
+        except Exception as e:
+            logger.warning("Fallback live market overview failed: %s", e)
         raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found.")
 
     last_candle = db.query(Candle).filter(Candle.instrument_id == instrument.id).order_by(Candle.timestamp.desc()).first()
@@ -180,7 +210,8 @@ def get_candles(symbol: str, interval: str = "5m", limit: int = 300, db: Session
 
     instrument = db.query(Instrument).filter(Instrument.symbol == symbol).first()
     if not instrument:
-        return []
+        # Fallback to live_service for forex pairs or unseeded symbols
+        return live_service.get_latest_candles(symbol, interval=interval, limit=limit)
 
     candles = db.query(Candle).filter(
         Candle.instrument_id == instrument.id,

@@ -8,6 +8,7 @@ import { AIAnalysisCard } from './components/dashboard/AIAnalysisCard';
 import { PositionTable } from './components/trading/PositionTable';
 import { PaperOrderModal } from './components/trading/PaperOrderModal';
 import { BacktestView } from './components/backtesting/BacktestView';
+import { MultiAssetWatchlist } from './components/dashboard/MultiAssetWatchlist';
 import {
   Play, Pause, Square, RotateCcw, Upload, ShieldAlert,
   ShieldCheck, Activity, Terminal, RefreshCw, BarChart2,
@@ -205,6 +206,29 @@ export default function App() {
     fetchData();
   };
 
+  // Select active symbol from watchlist or dropdown
+  const handleSelectSymbol = async (newSym: string) => {
+    setSymbol(newSym);
+    if (marketMode === 'LIVE') {
+      try {
+        await api.setMarketMode('LIVE', newSym);
+      } catch (err) {
+        console.warn('Error setting live market mode symbol:', err);
+      }
+    }
+    try {
+      const [c] = await Promise.all([
+        api.getCandles(newSym, '5m', 200),
+        api.getOverview(newSym).catch(() => null)
+      ]);
+      if (Array.isArray(c)) {
+        setCandles(c);
+      }
+    } catch (e) {
+      console.error('Error reloading symbol data:', e);
+    }
+  };
+
   // Kill Switch Toggle
   const handleToggleKillSwitch = async () => {
     if (!riskStatus) return;
@@ -388,6 +412,29 @@ export default function App() {
 
         {/* Simulator & Kill Switch Controls */}
         <div className="flex flex-wrap items-center gap-2.5">
+          {/* Asset Selector Dropdown */}
+          <div className="flex items-center gap-1.5 rounded-xl border border-dark-600 bg-dark-900/80 px-2.5 py-1">
+            <span className="text-xs font-semibold text-slate-400">Asset:</span>
+            <select
+              value={symbol}
+              onChange={(e) => handleSelectSymbol(e.target.value)}
+              className="rounded-lg border-0 bg-transparent py-1 pl-1 pr-6 text-xs font-black text-white focus:ring-0 cursor-pointer"
+            >
+              <optgroup label="🇮🇳 NSE Equities">
+                <option value="RELIANCE" className="bg-dark-800 text-white">RELIANCE</option>
+                <option value="TCS" className="bg-dark-800 text-white">TCS</option>
+                <option value="INFY" className="bg-dark-800 text-white">INFY</option>
+                <option value="HDFCBANK" className="bg-dark-800 text-white">HDFCBANK</option>
+              </optgroup>
+              <optgroup label="🌍 Forex Pairs">
+                <option value="USDINR" className="bg-dark-800 text-white">USDINR (USD/INR)</option>
+                <option value="EURUSD" className="bg-dark-800 text-white">EURUSD (EUR/USD)</option>
+                <option value="GBPUSD" className="bg-dark-800 text-white">GBPUSD (GBP/USD)</option>
+                <option value="EURINR" className="bg-dark-800 text-white">EURINR (EUR/INR)</option>
+              </optgroup>
+            </select>
+          </div>
+
           {/* Mode Selector Pill */}
           <div className="flex items-center gap-1 rounded-lg bg-dark-700/80 p-1 border border-dark-600">
             <button
@@ -551,6 +598,9 @@ export default function App() {
 
       {activeTab === 'live' ? (
         <div className="space-y-5">
+          {/* Live Multi-Asset Watchlist Scanner */}
+          <MultiAssetWatchlist selectedSymbol={symbol} onSelectSymbol={handleSelectSymbol} />
+
           {/* Main Candlestick Chart */}
           <CandlestickChart data={candles} symbol={symbol} marketMode={marketMode} />
 
