@@ -63,15 +63,9 @@ export const AIAnalysisCard: React.FC<Props> = ({
     ? Number(((analysis.entry_zone.min + analysis.entry_zone.max) / 2).toFixed(2))
     : 0;
 
-  // Calibrate position sizing with max ₹5,000 investment limit and ₹10,000 capital risk budget
-  const maxInvestment = 5000;
-  const riskPerShare = Math.max(0.1, Math.abs(entryPrice - analysis.stop_loss));
-  const maxQtyByCost = entryPrice > 0 ? Math.max(1, Math.floor(maxInvestment / entryPrice)) : 1;
-  const riskBudget = 150; // 1.5% of ₹10,000 account capital
-  const qtyByRisk = Math.max(1, Math.floor(riskBudget / riskPerShare));
-  const qty = Math.min(qtyByRisk, maxQtyByCost);
+  const qty = 1;
   const totalInvestment = (qty * entryPrice).toFixed(2);
-  const maxRiskRupees = (qty * riskPerShare).toFixed(2);
+  const maxRiskRupees = (qty * Math.abs(entryPrice - analysis.stop_loss)).toFixed(2);
   const targetProfitRupees = (qty * Math.abs(analysis.target - entryPrice)).toFixed(2);
 
   const handleExecuteAISetup = async () => {
@@ -108,7 +102,7 @@ export const AIAnalysisCard: React.FC<Props> = ({
         const tgt = analysis.target.toFixed(2);
         setFeedback({
           type: 'success',
-          message: `✓ Trade Successful! Filled ${filledQty} shares @ ₹${filledPrice} (Stop Loss: ₹${sl}, Target: ₹${tgt})`
+          message: `✓ Trade Successful! Filled ${filledQty} ${Number(filledQty) === 1 ? 'share' : 'shares'} @ ₹${filledPrice} (Stop Loss: ₹${sl}, Target: ₹${tgt})`
         });
       } else {
         setFeedback({
@@ -128,14 +122,20 @@ export const AIAnalysisCard: React.FC<Props> = ({
   };
 
   return (
-    <div className="rounded-xl border border-dark-600 bg-dark-800 p-5 shadow-lg flex flex-col justify-between">
+    <div className={`rounded-xl border ${isBuy ? 'border-emerald-500/30' : isSell ? 'border-rose-500/30' : 'border-dark-600'} bg-dark-800 p-5 shadow-lg flex flex-col justify-between`}>
       <div>
         <div className="flex items-center justify-between border-b border-dark-700 pb-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-indigo-400" />
-            <h3 className="font-bold text-white text-base tracking-tight">{analysis.setup}</h3>
+          <div className="flex flex-wrap items-center gap-2">
+            <Sparkles className={`h-4 w-4 ${isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-indigo-400'}`} />
+            <h3 className={`font-bold text-base tracking-tight ${isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-white'}`}>{analysis.setup}</h3>
             <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 border border-amber-500/20">
               ⏱ 10m Max Window
+            </span>
+            <span className="rounded bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300 border border-sky-500/20">
+              🎯 10m Scalp Target
+            </span>
+            <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-300 border border-indigo-500/20">
+              🛡 Structural SL
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -153,6 +153,37 @@ export const AIAnalysisCard: React.FC<Props> = ({
             >
               AI {analysis.signal}
             </span>
+          </div>
+        </div>
+
+        {/* Actionable AI Headline */}
+        <div
+          className={`mt-3 rounded-lg px-4 py-3 border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shadow-inner ${
+            isBuy
+              ? 'bg-emerald-500/10 border-emerald-500/30'
+              : isSell
+              ? 'bg-rose-500/10 border-rose-500/30'
+              : 'bg-dark-700/40 border-dark-600'
+          }`}
+        >
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+              AI Actionable Setup
+            </div>
+            <div
+              className={`text-lg sm:text-xl font-black tracking-tight ${
+                isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-slate-300'
+              }`}
+            >
+              {isBuy
+                ? `RECOMMENDED ACTION: BUY ${qty} SHARE (Scalp Target: +₹${targetProfitRupees} · 10m Window)`
+                : isSell
+                ? `RECOMMENDED ACTION: SELL ${qty} SHARE (Short Scalp: +₹${targetProfitRupees} · 10m Window)`
+                : `AI RECOMMENDATION: HOLD / NEUTRAL`}
+            </div>
+          </div>
+          <div className="text-xs font-semibold text-slate-300 sm:text-right">
+            <span className="text-slate-400">Target Entry:</span> ₹{entryPrice.toFixed(2)}
           </div>
         </div>
 
@@ -262,7 +293,9 @@ export const AIAnalysisCard: React.FC<Props> = ({
               <span>
                 {executing
                   ? 'EXECUTING AI SETUP...'
-                  : `⚡ EXECUTE AI SETUP (${analysis.signal} ${qty} SHARES · ₹${totalInvestment})`}
+                  : isBuy
+                  ? `⚡ EXECUTE AI SETUP (BUY ${qty} SHARE · ₹${totalInvestment})`
+                  : `⚡ EXECUTE AI SETUP (SELL ${qty} SHARE · ₹${totalInvestment})`}
               </span>
             </button>
           </div>

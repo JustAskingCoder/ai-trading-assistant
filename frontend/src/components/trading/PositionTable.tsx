@@ -73,7 +73,13 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                     <tr key={p.id} className="hover:bg-dark-700/30">
                       <td className="py-2.5 font-bold text-white">{p.symbol}</td>
                       <td className="py-2.5">
-                        <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-400">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${
+                            p.side === 'BUY'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}
+                        >
                           {p.side}
                         </span>
                       </td>
@@ -81,9 +87,15 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       <td className="py-2.5 text-slate-300">₹{(p.average_price ?? 0).toFixed(2)}</td>
                       <td className="py-2.5 text-white font-medium">₹{(p.current_price ?? p.average_price ?? 0).toFixed(2)}</td>
                       <td className="py-2.5">
-                        <span className="text-red-400 font-semibold">
-                          {p.stop_loss ? `₹${p.stop_loss.toFixed(2)}` : '—'}
-                        </span>
+                        {p.stop_loss !== null && p.stop_loss !== undefined && Math.abs(p.stop_loss - p.average_price) < 0.05 ? (
+                          <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold text-sky-300 border border-sky-500/30">
+                            🛡 Breakeven (₹{p.stop_loss.toFixed(2)})
+                          </span>
+                        ) : (
+                          <span className="text-red-400 font-semibold">
+                            {p.stop_loss ? '₹' + p.stop_loss.toFixed(2) : '—'}
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5">
                         <span className="text-emerald-400 font-semibold">

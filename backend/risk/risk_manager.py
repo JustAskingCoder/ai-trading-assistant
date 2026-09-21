@@ -124,7 +124,13 @@ class RiskManager:
         else:
             ideal_quantity = int(risk_budget / (risk_per_share + 1e-10))
             if ideal_quantity <= 0:
-                ideal_quantity = 1 if (1 * entry_price <= max_trade_cap and 1 * risk_per_share <= risk_budget * 1.5) else 0
+                if entry_price > 1000.0 and 1 * entry_price <= max_trade_cap:
+                    ideal_quantity = 1
+                elif 1 * entry_price <= max_trade_cap and 1 * risk_per_share <= risk_budget * 1.5:
+                    ideal_quantity = 1
+                else:
+                    ideal_quantity = 0
+
                 if ideal_quantity <= 0:
                     reason = f"Order rejected: Risk per share (₹{risk_per_share:.2f}) exceeds risk budget (₹{risk_budget:.2f})."
                     self._log_risk_event("REJECT_RISK_BUDGET", reason, "WARNING")

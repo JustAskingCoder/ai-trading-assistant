@@ -41,14 +41,9 @@ export const SignalCard: React.FC<Props> = ({
 
   const isBuy = signal.signal === 'BUY';
   const isOutOfRange = (isBuy && signal.entry_price <= signal.stop_loss) || (!isBuy && signal.entry_price >= signal.stop_loss);
-  const maxInvestment = 5000;
-  const riskPerShare = Math.max(0.1, Math.abs(signal.entry_price - signal.stop_loss));
-  const maxQtyByCost = Math.max(1, Math.floor(maxInvestment / signal.entry_price));
-  const riskBudget = 150; // 1.5% of ₹10,000 account capital
-  const qtyByRisk = Math.max(1, Math.floor(riskBudget / riskPerShare));
-  const qty = Math.min(qtyByRisk, maxQtyByCost);
+  const qty = 1;
   const totalInvestment = (qty * signal.entry_price).toFixed(2);
-  const maxRiskRupees = (qty * riskPerShare).toFixed(2);
+  const maxRiskRupees = (qty * Math.abs(signal.entry_price - signal.stop_loss)).toFixed(2);
   const targetProfitRupees = (qty * Math.abs(signal.target - signal.entry_price)).toFixed(2);
 
   const handlePlaceDirectOrder = async () => {
@@ -77,7 +72,7 @@ export const SignalCard: React.FC<Props> = ({
         const tgt = signal.target.toFixed(2);
         setFeedback({
           type: 'success',
-          message: `✓ Trade Successful! Filled ${filledQty} shares @ ₹${filledPrice} (Stop Loss: ₹${sl}, Target: ₹${tgt})`,
+          message: `✓ Trade Successful! Filled ${filledQty} ${Number(filledQty) === 1 ? 'share' : 'shares'} @ ₹${filledPrice} (Stop Loss: ₹${sl}, Target: ₹${tgt})`,
           orderId: result.data?.order_id
         });
       } else {
@@ -103,13 +98,19 @@ export const SignalCard: React.FC<Props> = ({
         {/* Header with symbol & actionable headline */}
         <div className="border-b border-dark-700 pb-3">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xl font-black text-white tracking-tight">{signal.symbol}</span>
               <span className="rounded bg-dark-700 px-2 py-0.5 text-xs font-semibold text-slate-300 border border-dark-600">
                 {signal.strategy}
               </span>
               <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 border border-amber-500/20">
                 ⏱ 10m Max Window
+              </span>
+              <span className="rounded bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300 border border-sky-500/20">
+                🎯 10m Scalp Target
+              </span>
+              <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-300 border border-indigo-500/20">
+                🛡 Structural SL
               </span>
               {isOutOfRange && (
                 <span className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-300 border border-rose-500/30 animate-pulse">
@@ -145,7 +146,9 @@ export const SignalCard: React.FC<Props> = ({
                   isBuy ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                RECOMMENDED ACTION: {isBuy ? 'BUY' : 'SELL'} {qty} SHARES (Invest: ₹{totalInvestment} / Max ₹5k)
+                {isBuy
+                  ? `RECOMMENDED ACTION: BUY ${qty} SHARE (Scalp Target: +₹${targetProfitRupees} · 10m Window)`
+                  : `RECOMMENDED ACTION: SELL ${qty} SHARE (Short Scalp: +₹${targetProfitRupees} · 10m Window)`}
               </div>
             </div>
             <div className="text-xs font-semibold text-slate-300 sm:text-right">
@@ -239,7 +242,9 @@ export const SignalCard: React.FC<Props> = ({
               ? '⚠️ SIGNAL OUT OF RANGE'
               : executing
               ? 'EXECUTING ORDER...'
-              : `⚡ PLACE ORDER (${isBuy ? 'BUY' : 'SELL'} ${qty} SHARES · ₹${totalInvestment})`}
+              : isBuy
+              ? `⚡ PLACE ORDER (BUY ${qty} SHARE · ₹${totalInvestment})`
+              : `⚡ PLACE ORDER (SELL ${qty} SHARE · ₹${totalInvestment})`}
           </span>
         </button>
 

@@ -338,13 +338,15 @@ def test_target_hit_auto_exit():
 
         # Current price rises to 3105 (>= 3100 Target)
         triggers = paper_broker.update_market_price("TEST_TGT_HIT", 3105.0, db=db)
-        assert len(triggers) == 1
-        trig = triggers[0]
+        auto_exits = [t for t in triggers if t["type"] == "AUTO_EXIT"]
+        assert len(auto_exits) == 1
+        trig = auto_exits[0]
         assert trig["type"] == "AUTO_EXIT"
         assert trig["symbol"] == "TEST_TGT_HIT"
         assert trig["reason"] == "Target Hit"
         assert trig["exit_price"] == 3105.0
         assert trig["pnl"] == 275.0  # (3105 - 3050) * 5
+        assert any(t["type"] == "BREAKEVEN_TRAILED" for t in triggers)
 
         # Verify position is closed
         closed_pos = db.query(Position).filter(Position.symbol == "TEST_TGT_HIT").first()
@@ -497,7 +499,9 @@ def test_ten_minute_window_auto_exit():
 
         # 1. Check at 5 minutes: price 105 (no SL, no target hit) -> should NOT trigger exit
         triggers_5m = paper_broker.update_market_price("TEST_EXPIRE", 105.0, candle_time=entry_t + timedelta(minutes=5), db=db)
-        assert len(triggers_5m) == 0
+        auto_exits_5m = [t for t in triggers_5m if t["type"] == "AUTO_EXIT"]
+        assert len(auto_exits_5m) == 0
+        assert any(t["type"] == "BREAKEVEN_TRAILED" for t in triggers_5m)
 
         # Position still open
         pos_still_open = db.query(Position).filter(Position.symbol == "TEST_EXPIRE").first()
@@ -505,8 +509,9 @@ def test_ten_minute_window_auto_exit():
 
         # 2. Check at 10 minutes: price 105 -> should trigger '10-Min Window Expired'
         triggers_10m = paper_broker.update_market_price("TEST_EXPIRE", 105.0, candle_time=entry_t + timedelta(minutes=10), db=db)
-        assert len(triggers_10m) == 1
-        trig = triggers_10m[0]
+        auto_exits_10m = [t for t in triggers_10m if t["type"] == "AUTO_EXIT"]
+        assert len(auto_exits_10m) == 1
+        trig = auto_exits_10m[0]
         assert trig["type"] == "AUTO_EXIT"
         assert trig["symbol"] == "TEST_EXPIRE"
         assert trig["reason"] == "10-Min Window Expired"
@@ -604,9 +609,11 @@ def test_wall_clock_window_expiry():
 
         # Update market price with candle_time=None (pure wall clock check)
         triggers = paper_broker.update_market_price("TEST_WALLCLOCK", 505.0, candle_time=None, db=db)
-        assert len(triggers) == 1
-        assert triggers[0]["reason"] == "10-Min Window Expired"
-        assert triggers[0]["symbol"] == "TEST_WALLCLOCK"
+        auto_exits = [t for t in triggers if t["type"] == "AUTO_EXIT"]
+        assert len(auto_exits) == 1
+        assert auto_exits[0]["reason"] == "10-Min Window Expired"
+        assert auto_exits[0]["symbol"] == "TEST_WALLCLOCK"
+        assert any(t["type"] == "BREAKEVEN_TRAILED" for t in triggers)
 
         closed_pos = db.query(Position).filter(Position.symbol == "TEST_WALLCLOCK").first()
         assert closed_pos is None
@@ -689,4 +696,316 @@ def test_api_paper_order_with_requested_quantity():
     finally:
         paper_broker.reset_portfolio(db)
         db.close()
+
+
+def test_trailing_breakeven_buy_and_sell():
+    """Verify Trailing Breakeven Auto-Lock for BUY (+0.3%) and SELL (+0.3%) positions."""
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        # 1. Test BUY trailing breakeven
+        paper_broker.place_order(
+            symbol="TEST_BE_BUY",
+            side="BUY",
+            quantity=1,
+            price=1000.0,
+            stop_loss=980.0,
+            target=1050.0,
+            db=db
+        )
+        pos_buy = db.query(Position).filter(Position.symbol == "TEST_BE_BUY").first()
+        assert pos_buy is not None
+        assert pos_buy.stop_loss == 980.0
+
+        # Sub-threshold price increase (1002.5 < 1003.0) -> No trailing breakeven
+        trigs = paper_broker.update_market_price("TEST_BE_BUY", 1002.5, db=db)
+        assert len([t for t in trigs if t["type"] == "BREAKEVEN_TRAILED"]) == 0
+        db.refresh(pos_buy)
+        assert pos_buy.stop_loss == 980.0
+
+        # +0.3% price increase (1003.5 >= 1003.0) -> Triggers BREAKEVEN_TRAILED
+        trigs = paper_broker.update_market_price("TEST_BE_BUY", 1003.5, db=db)
+        be_trigs = [t for t in trigs if t["type"] == "BREAKEVEN_TRAILED"]
+        assert len(be_trigs) == 1
+        assert be_trigs[0]["breakeven_price"] == 1000.0
+        assert be_trigs[0]["current_price"] == 1003.5
+        db.refresh(pos_buy)
+        assert pos_buy.stop_loss == 1000.0
+
+        # Further price increase (1005.0) -> No duplicate BREAKEVEN_TRAILED
+        trigs = paper_broker.update_market_price("TEST_BE_BUY", 1005.0, db=db)
+        assert len([t for t in trigs if t["type"] == "BREAKEVEN_TRAILED"]) == 0
+
+        # 2. Test SELL trailing breakeven
+        pos_sell = Position(
+            symbol="TEST_BE_SELL",
+            side="SELL",
+            quantity=1,
+            average_price=1000.0,
+            current_price=1000.0,
+            unrealized_pnl=0.0,
+            stop_loss=1020.0,
+            target=950.0,
+            entry_time=datetime.utcnow()
+        )
+        db.add(pos_sell)
+        db.commit()
+
+        # Sub-threshold price drop (997.5 > 997.0) -> No trailing breakeven
+        trigs = paper_broker.update_market_price("TEST_BE_SELL", 997.5, db=db)
+        assert len([t for t in trigs if t["type"] == "BREAKEVEN_TRAILED"]) == 0
+        db.refresh(pos_sell)
+        assert pos_sell.stop_loss == 1020.0
+
+        # +0.3% price drop for short (996.5 <= 997.0) -> Triggers BREAKEVEN_TRAILED
+        trigs = paper_broker.update_market_price("TEST_BE_SELL", 996.5, db=db)
+        be_trigs = [t for t in trigs if t["type"] == "BREAKEVEN_TRAILED"]
+        assert len(be_trigs) == 1
+        assert be_trigs[0]["breakeven_price"] == 1000.0
+        assert be_trigs[0]["current_price"] == 996.5
+        db.refresh(pos_sell)
+        assert pos_sell.stop_loss == 1000.0
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_market_simulator_breakeven_trailed_broadcast():
+    """Verify market simulator broadcasts BREAKEVEN_TRAILED event when trailing breakeven occurs."""
+    from backend.data.market_simulator import simulator
+    db = SessionLocal()
+    q = simulator.subscribe()
+    try:
+        paper_broker.reset_portfolio(db)
+        paper_broker.place_order(
+            symbol="TEST_SIM_BE",
+            side="BUY",
+            quantity=1,
+            price=1000.0,
+            stop_loss=980.0,
+            target=1050.0,
+            db=db
+        )
+
+        # Trigger update_market_price that produces BREAKEVEN_TRAILED
+        events = paper_broker.update_market_price("TEST_SIM_BE", 1004.0, db=db)
+        be_events = [e for e in events if e.get("type") == "BREAKEVEN_TRAILED"]
+        assert len(be_events) == 1
+
+        # Broadcast event
+        await simulator.broadcast({"type": "BREAKEVEN_TRAILED", "data": be_events[0]})
+        msg = await asyncio.wait_for(q.get(), timeout=2.0)
+        assert msg["type"] == "BREAKEVEN_TRAILED"
+        assert msg["data"]["symbol"] == "TEST_SIM_BE"
+        assert msg["data"]["breakeven_price"] == 1000.0
+    finally:
+        simulator.unsubscribe(q)
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_bidirectional_breakout_strategy():
+    """Verify BreakoutStrategy BUY and SELL signals."""
+    strat = BreakoutStrategy()
+
+    rows = []
+    for i in range(30):
+        rows.append({
+            "symbol": "BRK_TEST",
+            "timestamp": f"2026-01-01 10:{i:02d}:00",
+            "open": 1000.0,
+            "high": 1005.0,
+            "low": 995.0,
+            "close": 1000.0,
+            "volume": 1000,
+            "volume_sma": 1000,
+            "ema20": 1000.0,
+            "ema50": 995.0,
+            "rsi": 55.0,
+            "adx": 20.0,
+            "atr": 5.0
+        })
+
+    # 1. BUY scenario: close breaks resistance (1005.0)
+    df_buy = pd.DataFrame(rows)
+    df_buy.loc[28, "close"] = 1002.0
+    df_buy.loc[29, "close"] = 1008.0
+    df_buy.loc[29, "volume"] = 1500  # > 1.2 * 1000
+    df_buy.loc[29, "ema20"] = 1002.0
+    df_buy.loc[29, "ema50"] = 995.0
+    df_buy.loc[29, "rsi"] = 58.0
+    sig_buy = strat.evaluate(df_buy, -1)
+    assert sig_buy is not None
+    assert sig_buy["signal"] == "BUY"
+    assert sig_buy["entry_price"] == 1008.0
+    assert sig_buy["stop_loss"] < 1008.0
+    assert sig_buy["target"] > 1008.0
+    assert sig_buy["risk_reward"] >= 0.8
+
+    # 2. SELL scenario: close breaks support (995.0)
+    df_sell = pd.DataFrame(rows)
+    df_sell.loc[28, "close"] = 997.0
+    df_sell.loc[29, "close"] = 992.0
+    df_sell.loc[29, "volume"] = 1500  # > 1.2 * 1000
+    df_sell.loc[29, "ema20"] = 995.0
+    df_sell.loc[29, "ema50"] = 1005.0  # ema20 < ema50
+    df_sell.loc[29, "rsi"] = 42.0     # 32 <= rsi <= 52
+    sig_sell = strat.evaluate(df_sell, -1)
+    assert sig_sell is not None
+    assert sig_sell["signal"] == "SELL"
+    assert sig_sell["entry_price"] == 992.0
+    assert sig_sell["stop_loss"] > 992.0
+    assert sig_sell["target"] < 992.0
+    assert sig_sell["risk_reward"] >= 0.8
+
+
+def test_bidirectional_momentum_strategy():
+    """Verify MomentumStrategy BUY and SELL signals."""
+    strat = MomentumStrategy()
+
+    rows = []
+    for i in range(30):
+        rows.append({
+            "symbol": "MOM_TEST",
+            "timestamp": f"2026-01-01 10:{i:02d}:00",
+            "open": 1000.0,
+            "high": 1005.0,
+            "low": 995.0,
+            "close": 1000.0,
+            "volume": 1000,
+            "ema20": 1000.0,
+            "ema50": 990.0,
+            "macd": 1.0,
+            "macd_signal": 0.5,
+            "rsi": 58.0,
+            "atr": 5.0
+        })
+
+    # 1. BUY scenario
+    df_buy = pd.DataFrame(rows)
+    df_buy.loc[28, "macd"] = 1.0
+    df_buy.loc[28, "macd_signal"] = 0.8
+    df_buy.loc[29, "macd"] = 1.5
+    df_buy.loc[29, "macd_signal"] = 0.9  # expanding
+    df_buy.loc[29, "rsi"] = 56.0
+    df_buy.loc[29, "close"] = 1002.0
+    df_buy.loc[29, "ema20"] = 1000.0
+    df_buy.loc[29, "ema50"] = 990.0
+    sig_buy = strat.evaluate(df_buy, -1)
+    assert sig_buy is not None
+    assert sig_buy["signal"] == "BUY"
+    assert sig_buy["entry_price"] == 1002.0
+    assert sig_buy["stop_loss"] < 1002.0
+    assert sig_buy["target"] > 1002.0
+    assert sig_buy["risk_reward"] >= 0.8
+
+    # 2. SELL scenario
+    df_sell = pd.DataFrame(rows)
+    df_sell.loc[28, "macd"] = -1.0
+    df_sell.loc[28, "macd_signal"] = -0.8
+    df_sell.loc[29, "macd"] = -1.6
+    df_sell.loc[29, "macd_signal"] = -0.9  # expanding downwards
+    df_sell.loc[29, "rsi"] = 42.0
+    df_sell.loc[29, "close"] = 998.0
+    df_sell.loc[29, "ema20"] = 1000.0
+    df_sell.loc[29, "ema50"] = 1010.0
+    sig_sell = strat.evaluate(df_sell, -1)
+    assert sig_sell is not None
+    assert sig_sell["signal"] == "SELL"
+    assert sig_sell["entry_price"] == 998.0
+    assert sig_sell["stop_loss"] > 998.0
+    assert sig_sell["target"] < 998.0
+    assert sig_sell["risk_reward"] >= 0.8
+
+
+def test_bidirectional_trend_following_strategy():
+    """Verify TrendFollowingStrategy BUY and SELL pullback entries."""
+    strat = TrendFollowingStrategy()
+
+    rows = []
+    for i in range(30):
+        rows.append({
+            "symbol": "TRD_TEST",
+            "timestamp": f"2026-01-01 10:{i:02d}:00",
+            "open": 1000.0,
+            "high": 1005.0,
+            "low": 995.0,
+            "close": 1000.0,
+            "volume": 1000,
+            "ema20": 1000.0,
+            "ema50": 990.0,
+            "vwap": 1000.0,
+            "adx": 25.0,
+            "atr": 5.0
+        })
+
+    # 1. BUY scenario: close > vwap, close <= vwap * 1.008, ema20 > ema50, adx > 18, close > open
+    df_buy = pd.DataFrame(rows)
+    df_buy.loc[29, "vwap"] = 1000.0
+    df_buy.loc[29, "open"] = 1001.0
+    df_buy.loc[29, "close"] = 1004.0
+    df_buy.loc[29, "ema20"] = 1002.0
+    df_buy.loc[29, "ema50"] = 995.0
+    df_buy.loc[29, "adx"] = 22.0
+    sig_buy = strat.evaluate(df_buy, -1)
+    assert sig_buy is not None
+    assert sig_buy["signal"] == "BUY"
+    assert sig_buy["entry_price"] == 1004.0
+    assert sig_buy["stop_loss"] < 1004.0
+    assert sig_buy["target"] > 1004.0
+    assert sig_buy["risk_reward"] >= 0.8
+
+    # 2. SELL scenario: close < vwap, close >= vwap * 0.992, ema20 < ema50, adx > 18, close < open
+    df_sell = pd.DataFrame(rows)
+    df_sell.loc[29, "vwap"] = 1000.0
+    df_sell.loc[29, "open"] = 999.0
+    df_sell.loc[29, "close"] = 996.0
+    df_sell.loc[29, "ema20"] = 995.0
+    df_sell.loc[29, "ema50"] = 1005.0
+    df_sell.loc[29, "adx"] = 22.0
+    sig_sell = strat.evaluate(df_sell, -1)
+    assert sig_sell is not None
+    assert sig_sell["signal"] == "SELL"
+    assert sig_sell["entry_price"] == 996.0
+    assert sig_sell["stop_loss"] > 996.0
+    assert sig_sell["target"] < 996.0
+    assert sig_sell["risk_reward"] >= 0.8
+
+
+def test_risk_manager_min_share_sizing_for_expensive_stocks():
+    """Verify ideal_quantity defaults to 1 share minimal for stocks > ₹1,000 on ₹10k capital."""
+    from backend.core.config import settings
+    assert settings.MIN_RISK_REWARD == 0.8
+
+    rm = RiskManager()
+    portfolio = Portfolio(capital=10000.0, available_cash=10000.0, daily_pnl=0.0)
+
+    # 1. Stock > ₹1,000 (e.g. ₹2,500) where risk_budget / risk_per_share would be 0
+    app, qty, reason = rm.evaluate_order(
+        symbol="TCS",
+        side="BUY",
+        entry_price=2500.0,
+        stop_loss=2300.0,
+        target=2700.0,
+        portfolio=portfolio,
+        open_positions_count=0
+    )
+    assert app is True
+    assert qty == 1
+    assert "approved" in reason.lower()
+
+    # 2. Stock <= ₹1,000 (e.g. ₹1,000) with excessive risk (> 1.5x risk budget = 225) -> Still rejected
+    app_low, qty_low, reason_low = rm.evaluate_order(
+        symbol="CHEAP_RISKY",
+        side="BUY",
+        entry_price=1000.0,
+        stop_loss=700.0,
+        target=1600.0,
+        portfolio=portfolio,
+        open_positions_count=0
+    )
+    assert app_low is False
+    assert qty_low == 0
+    assert "exceeds risk budget" in reason_low
 

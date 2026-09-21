@@ -108,13 +108,19 @@ class MarketSimulator:
                 candle_dt = pd.to_datetime(raw_ts).to_pydatetime() if pd.notnull(raw_ts) else None
 
                 # Update paper positions
-                auto_exits = paper_broker.update_market_price(symbol, close_p, candle_time=candle_dt)
-                if auto_exits:
-                    for exit_event in auto_exits:
-                        await manager.broadcast({
-                            'type': 'AUTO_EXIT_TRIGGERED',
-                            'data': exit_event
-                        })
+                market_events = paper_broker.update_market_price(symbol, close_p, candle_time=candle_dt)
+                if market_events:
+                    for evt in market_events:
+                        if evt.get('type') == 'BREAKEVEN_TRAILED':
+                            await manager.broadcast({
+                                'type': 'BREAKEVEN_TRAILED',
+                                'data': evt
+                            })
+                        else:
+                            await manager.broadcast({
+                                'type': 'AUTO_EXIT_TRIGGERED',
+                                'data': evt
+                            })
 
                 # Detect patterns and evaluate strategies
                 current_slice = self.data.iloc[:self.current_index + 1]

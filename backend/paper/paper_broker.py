@@ -220,6 +220,16 @@ class PaperBroker:
                 else:
                     pos.unrealized_pnl = round((pos.average_price - current_price) * pos.quantity, 2)
 
+                # Trailing Breakeven Auto-Lock
+                if pos.side == 'BUY' and pos.stop_loss and pos.stop_loss < pos.average_price:
+                    if current_price >= pos.average_price * 1.003:  # +0.3% profit
+                        pos.stop_loss = pos.average_price
+                        triggers.append({'type': 'BREAKEVEN_TRAILED', 'symbol': pos.symbol, 'side': pos.side, 'breakeven_price': pos.average_price, 'current_price': current_price})
+                elif pos.side == 'SELL' and pos.stop_loss and pos.stop_loss > pos.average_price:
+                    if current_price <= pos.average_price * 0.997:  # +0.3% profit
+                        pos.stop_loss = pos.average_price
+                        triggers.append({'type': 'BREAKEVEN_TRAILED', 'symbol': pos.symbol, 'side': pos.side, 'breakeven_price': pos.average_price, 'current_price': current_price})
+
                 reason = None
                 if pos.side == 'BUY':
                     if pos.stop_loss is not None and current_price <= pos.stop_loss:

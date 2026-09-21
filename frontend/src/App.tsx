@@ -99,7 +99,15 @@ export default function App() {
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        if (msg.type === 'AUTO_EXIT_TRIGGERED') {
+        if (msg.type === 'BREAKEVEN_TRAILED') {
+          const sym = msg.symbol || msg.data?.symbol;
+          const bePrice = msg.breakeven_price || msg.data?.breakeven_price;
+          setOrderAlert({
+            type: 'success',
+            message: `🛡 Risk-Free! Stop-Loss for ${sym} trailed to Breakeven @ ₹${Number(bePrice).toFixed(2)}. Trade is now protected!`
+          });
+          loadPortfolioData();
+        } else if (msg.type === 'AUTO_EXIT_TRIGGERED') {
           const data = msg.data || msg;
           if (data.reason === '10-Min Window Expired') {
             setOrderAlert({
@@ -228,20 +236,23 @@ export default function App() {
       signal: 'BUY',
       confidence: 1.0,
       entry_price: latestP,
-      stop_loss: Number((latestP * 0.985).toFixed(2)),
-      target: Number((latestP * 1.03).toFixed(2)),
-      risk_reward: 2.0,
-      reason: 'Manual Quick Paper Trade (10-Min Window)'
+      stop_loss: Number((latestP * 0.994).toFixed(2)),
+      target: Number((latestP * 1.005).toFixed(2)),
+      risk_reward: Number(((latestP * 0.005) / (latestP * 0.006)).toFixed(2)),
+      reason: 'Manual 10-Minute Scalp Trade'
     });
     setOrderModalOpen(true);
   };
 
   const handleOrderSubmit = async (orderData: any) => {
-    await api.placePaperOrder(orderData);
+    await api.placePaperOrder({
+      ...orderData,
+      quantity: orderData.quantity || 1
+    });
     await loadPortfolioData();
     setOrderAlert({
       type: 'success',
-      message: `✅ Order Placed! ${orderData.side} ${orderData.symbol} @ ₹${Number(orderData.price).toFixed(2)}. Active in Open Virtual Positions below.`
+      message: `✅ Order Placed! ${orderData.side} ${orderData.quantity || 1} share of ${orderData.symbol} @ ₹${Number(orderData.price).toFixed(2)}. Active in Open Virtual Positions below.`
     });
   };
 
