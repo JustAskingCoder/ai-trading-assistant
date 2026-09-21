@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict, Any
 from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.data.live_market_service import live_service
+from backend.data.market_simulator import simulator
 from backend.core.logging import logger
 
 router = APIRouter(prefix="/api/zerodha", tags=["Zerodha Kite Live Feed"])
@@ -45,9 +46,12 @@ def connect_zerodha(req: ZerodhaConnectRequest):
     if not success:
         raise HTTPException(status_code=401, detail=message)
 
-    # Set LiveMarketService data source to Zerodha
+    # Set LiveMarketService data source to Zerodha and start live streaming
     live_service.data_source = "ZERODHA"
-    logger.info("Market data source switched to ZERODHA Kite (0-Delay).")
+    if simulator.is_running:
+        simulator.stop()
+    live_service.start(symbol="RELIANCE")
+    logger.info("Market data source switched to ZERODHA Kite (0-Delay) and LIVE mode activated.")
 
     return {
         "status": "connected",

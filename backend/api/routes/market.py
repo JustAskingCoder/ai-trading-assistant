@@ -9,6 +9,7 @@ from backend.database.models import Instrument, Candle
 from backend.data.csv_loader import load_csv_to_dataframe
 from backend.data.market_simulator import simulator
 from backend.data.live_market_service import live_service, get_market_category, SYMBOL_NAMES
+from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.indicators.engine import calculate_indicators, get_latest_indicators_summary
 from backend.patterns.engine import detect_all_patterns
 from backend.core.logging import logger
@@ -124,7 +125,7 @@ def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,USDINR,EURUSD
 
 @router.get("/market/{symbol}")
 def get_market_overview(symbol: str, db: Session = Depends(get_db)):
-    if live_service.mode == "LIVE":
+    if live_service.mode == "LIVE" or (live_service.data_source == "ZERODHA" and zerodha_client.is_connected):
         try:
             live_candles = live_service.get_latest_candles(symbol, limit=2)
             if live_candles:
@@ -205,7 +206,7 @@ def get_market_overview(symbol: str, db: Session = Depends(get_db)):
 
 @router.get("/market/{symbol}/candles")
 def get_candles(symbol: str, interval: str = "5m", limit: int = 300, db: Session = Depends(get_db)):
-    if live_service.mode == "LIVE":
+    if live_service.mode == "LIVE" or (live_service.data_source == "ZERODHA" and zerodha_client.is_connected):
         return live_service.get_latest_candles(symbol, interval=interval, limit=limit)
 
     instrument = db.query(Instrument).filter(Instrument.symbol == symbol).first()

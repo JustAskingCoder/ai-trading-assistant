@@ -49,8 +49,15 @@ export default function App() {
   const [simSpeed, setSimSpeed] = useState(2.0);
   const [marketMode, setMarketMode] = useState<'LIVE' | 'SIMULATOR'>('SIMULATOR');
 
-  // Query initial market mode
+  // Query initial market mode and Zerodha status
   useEffect(() => {
+    api.getZerodhaStatus().then(zs => {
+      setZerodhaStatus(zs);
+      if (zs?.is_connected) {
+        setMarketMode('LIVE');
+      }
+    }).catch(() => {});
+
     api.getMarketMode()
       .then(res => {
         if (res?.mode) setMarketMode(res.mode);
@@ -844,11 +851,11 @@ export default function App() {
         onStatusChange={(newStatus) => {
           setZerodhaStatus(newStatus);
           if (newStatus.is_connected) {
+            handleSwitchMode('LIVE');
             setOrderAlert({
               type: 'success',
-              message: `🪁 Zerodha Kite Live Feed Connected! 0-Delay tick stream activated for ${newStatus.user_name || 'your account'}.`
+              message: `🪁 Zerodha Kite Live Feed Connected! 0-Delay tick stream activated for ${newStatus.user_name || 'your account'}. Switched to LIVE real-time feed.`
             });
-            fetchData();
           } else {
             setOrderAlert({
               type: 'error',

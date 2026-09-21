@@ -201,6 +201,17 @@ class LiveMarketService:
             interval = "5m"
         try:
             records, _ = self._fetch_and_prepare(symbol, interval, limit=limit)
+            if records and self.data_source == "ZERODHA" and zerodha_client.is_connected:
+                try:
+                    zq = zerodha_client.get_quotes([symbol])
+                    if symbol in zq and zq[symbol].get("price", 0) > 0:
+                        zp = float(zq[symbol]["price"])
+                        records[-1]["close"] = zp
+                        records[-1]["high"] = max(float(records[-1].get("high", zp)), zp)
+                        records[-1]["low"] = min(float(records[-1].get("low", zp)), zp)
+                        records[-1]["volume"] = float(zq[symbol].get("volume", records[-1].get("volume", 0)))
+                except Exception:
+                    pass
             return records
         except Exception as e:
             logger.warning("LiveMarketService failed to fetch candles for %s: %s", symbol, e)

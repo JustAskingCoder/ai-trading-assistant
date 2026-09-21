@@ -21,9 +21,9 @@ export const ZerodhaConnectModal: React.FC<Props> = ({
   const [activeTab, setActiveTab] = useState<'ENCTOKEN' | 'API_KEY'>(
     status?.mode === 'API_KEY' ? 'API_KEY' : 'ENCTOKEN'
   );
-  const [enctoken, setEnctoken] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [accessToken, setAccessToken] = useState('');
+  const [enctoken, setEnctoken] = useState(() => localStorage.getItem('zerodha_enctoken') || '');
+  const [apiKey, setApiKey] = useState(() => localStorage.getItem('zerodha_api_key') || '');
+  const [accessToken, setAccessToken] = useState(() => localStorage.getItem('zerodha_access_token') || '');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showGuide, setShowGuide] = useState(true);
@@ -40,6 +40,12 @@ export const ZerodhaConnectModal: React.FC<Props> = ({
 
       const res = await api.connectZerodha(payload);
       if (res.status === 'connected') {
+        if (activeTab === 'ENCTOKEN') {
+          localStorage.setItem('zerodha_enctoken', enctoken.trim());
+        } else {
+          localStorage.setItem('zerodha_api_key', apiKey.trim());
+          localStorage.setItem('zerodha_access_token', accessToken.trim());
+        }
         const newStatus: ZerodhaStatus = {
           is_connected: true,
           mode: res.mode,
@@ -68,6 +74,9 @@ export const ZerodhaConnectModal: React.FC<Props> = ({
     setLoading(true);
     try {
       await api.disconnectZerodha();
+      localStorage.removeItem('zerodha_enctoken');
+      localStorage.removeItem('zerodha_api_key');
+      localStorage.removeItem('zerodha_access_token');
       const newStatus: ZerodhaStatus = {
         is_connected: false,
         mode: 'DISCONNECTED',
