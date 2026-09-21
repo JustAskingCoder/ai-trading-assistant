@@ -1370,6 +1370,7 @@ def test_no_fake_signals_when_strategies_hold_and_rr_guaranteed():
             assert "Consolidation" in q["reason"]
 
     # Test BUY signal generation when strategy evaluates BUY
+    service.clear_cache()
     with patch("yfinance.Ticker") as mock_ticker_cls:
         mock_inst = MagicMock()
         mock_inst.history.return_value = mock_df
@@ -1386,6 +1387,7 @@ def test_no_fake_signals_when_strategies_hold_and_rr_guaranteed():
             assert bq["target"] > bq["entry_price"]
 
     # Test SELL signal generation when strategy evaluates SELL
+    service.clear_cache()
     with patch("yfinance.Ticker") as mock_ticker_cls:
         mock_inst = MagicMock()
         mock_inst.history.return_value = mock_df

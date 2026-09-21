@@ -1,6 +1,7 @@
 """Live market data poller and real-time streaming service using yfinance."""
 import asyncio
 import threading
+import time
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
@@ -109,6 +110,8 @@ class LiveMarketService:
         self._bg_thread: Optional[threading.Thread] = None
         self.poll_interval: float = 4.0
         self.strategies = [BreakoutStrategy(), MomentumStrategy(), TrendFollowingStrategy()]
+        self._quote_cache: Dict[str, Tuple[float, Dict[str, Any]]] = {}
+        self._cache_ttl: float = 6.0
 
     @property
     def mode(self) -> str:
@@ -201,7 +204,11 @@ class LiveMarketService:
             logger.warning("LiveMarketService failed to fetch candles for %s: %s", symbol, e)
             return []
 
-    def _fetch_single_quote(self, symbol: str) -> Dict[str, Any]:
+    def clear_cache(self):
+        """Clear cached quotes."""
+        self._quote_cache.clear()
+
+    def _fetch_single_quote(self, symbol: str, use_cache: bool = True) -> Dict[str, Any]:
         """Fetch quote, calculate metrics, and evaluate signal for a single symbol."""
         raw_sym = symbol.strip()
         clean_sym = raw_sym.upper().replace(" ", "")
@@ -210,6 +217,13 @@ class LiveMarketService:
         name = SYMBOL_NAMES.get(clean_sym.replace("/", ""), clean_sym)
         is_forex = (market == "FOREX")
         dec = 4 if is_forex else 2
+
+        cache_key = clean_sym.replace("/", "")
+        now_ts = time.time()
+        if use_cache and cache_key in self._quote_cache:
+            cached_time, cached_quote = self._quote_cache[cache_key]
+            if (now_ts - cached_time < self._cache_ttl) and cached_quote.get("price", 0) > 0:
+                return cached_quote
 
         try:
             ticker = yfinance.Ticker(yf_sym)
@@ -220,6 +234,8 @@ class LiveMarketService:
                     hist = hist_fallback
 
             if hist is None or hist.empty:
+                if cache_key in self._quote_cache and self._quote_cache[cache_key][1].get("price", 0) > 0:
+                    return self._quote_cache[cache_key][1]
                 return {
                     "symbol": clean_sym,
                     "name": name,
@@ -358,7 +374,7 @@ class LiveMarketService:
             target_profit = round(target_dist * quantity, dec)
             max_risk = round(risk_dist * quantity, dec)
 
-            return {
+            quote_payload = {
                 "symbol": clean_sym,
                 "name": name,
                 "price": entry_price,
@@ -389,8 +405,12 @@ class LiveMarketService:
                 },
                 "timestamp": str(last_candle.get("timestamp", datetime.now().isoformat()))
             }
+            self._quote_cache[cache_key] = (now_ts, quote_payload)
+            return quote_payload
         except Exception as e:
             logger.warning("Error fetching quote for %s: %s", symbol, e)
+            if cache_key in self._quote_cache and self._quote_cache[cache_key][1].get("price", 0) > 0:
+                return self._quote_cache[cache_key][1]
             return {
                 "symbol": clean_sym,
                 "name": name,
@@ -418,7 +438,7 @@ class LiveMarketService:
                 "timestamp": datetime.now().isoformat()
             }
 
-    def get_watchlist_quotes(self, symbols: List[str]) -> List[Dict[str, Any]]:
+    def get_watchlist_quotes(self, symbols: List[str], use_cache: bool = True) -> List[Dict[str, Any]]:
         """Fetch watchlist quotes concurrently for a list of symbols."""
         if not symbols:
             return []
@@ -428,9 +448,11 @@ class LiveMarketService:
             return []
 
         from concurrent.futures import ThreadPoolExecutor
+        from functools import partial
+        fetch_fn = partial(self._fetch_single_quote, use_cache=use_cache)
         max_workers = min(len(clean_symbols), 8)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            quotes = list(executor.map(self._fetch_single_quote, clean_symbols))
+            quotes = list(executor.map(fetch_fn, clean_symbols))
 
         return [q for q in quotes if q is not None]
 

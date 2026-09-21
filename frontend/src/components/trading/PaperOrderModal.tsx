@@ -89,10 +89,12 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-400">Entry Price (₹)</label>
+              <label className="block text-xs font-semibold text-slate-400">
+                Entry Price {signal.symbol.includes('USD') || signal.symbol.includes('EUR') || signal.symbol.includes('GBP') ? '(Rate)' : '(₹)'}
+              </label>
               <input
                 type="number"
-                step="0.05"
+                step="any"
                 value={price}
                 onChange={e => setPrice(Number(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-dark-600 bg-dark-700 px-3 py-2 text-white font-semibold"
@@ -103,10 +105,12 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-400">Stop Loss (₹)</label>
+              <label className="block text-xs font-semibold text-slate-400">
+                Stop Loss {signal.symbol.includes('USD') || signal.symbol.includes('EUR') || signal.symbol.includes('GBP') ? '(Rate)' : '(₹)'}
+              </label>
               <input
                 type="number"
-                step="0.05"
+                step="any"
                 value={stopLoss}
                 onChange={e => setStopLoss(Number(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-dark-600 bg-dark-700 px-3 py-2 text-rose-400 font-semibold"
@@ -114,10 +118,12 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-400">Target (₹)</label>
+              <label className="block text-xs font-semibold text-slate-400">
+                Target {signal.symbol.includes('USD') || signal.symbol.includes('EUR') || signal.symbol.includes('GBP') ? '(Rate)' : '(₹)'}
+              </label>
               <input
                 type="number"
-                step="0.05"
+                step="any"
                 value={target}
                 onChange={e => setTarget(Number(e.target.value))}
                 className="mt-1 w-full rounded-lg border border-dark-600 bg-dark-700 px-3 py-2 text-emerald-400 font-semibold"

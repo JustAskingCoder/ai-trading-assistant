@@ -435,9 +435,13 @@ export default function App() {
       quantity: orderData.quantity || 1
     });
     await loadPortfolioData();
+    const isForex = orderData.symbol.includes('USD') || orderData.symbol.includes('EUR') || orderData.symbol.includes('GBP');
+    const priceDisplay = isForex
+      ? `${orderData.symbol.includes('INR') ? '₹' : ''}${Number(orderData.price).toFixed(4)}`
+      : `₹${Number(orderData.price).toFixed(2)}`;
     setOrderAlert({
       type: 'success',
-      message: `✅ Order Placed! ${orderData.side} ${orderData.quantity || 1} share of ${orderData.symbol} @ ₹${Number(orderData.price).toFixed(2)}. Active in Open Virtual Positions below.`
+      message: `✅ Order Placed! ${orderData.side} ${orderData.quantity || 1} ${isForex ? 'unit' : 'share'} of ${orderData.symbol} @ ${priceDisplay}. Active in Open Virtual Positions below.`
     });
   };
 
@@ -462,9 +466,13 @@ export default function App() {
         quantity: orderData.quantity
       });
       await loadPortfolioData();
+      const isForex = orderData.symbol.includes('USD') || orderData.symbol.includes('EUR') || orderData.symbol.includes('GBP');
+      const priceDisplay = isForex
+        ? `${orderData.symbol.includes('INR') ? '₹' : ''}${Number(orderData.price).toFixed(4)}`
+        : `₹${Number(orderData.price).toFixed(2)}`;
       setOrderAlert({
         type: 'success',
-        message: `✅ Order Filled! ${orderData.side} ${orderData.quantity || 1} shares of ${orderData.symbol} @ ₹${Number(orderData.price).toFixed(2)}. Active in Open Virtual Positions below.`
+        message: `✅ Order Filled! ${orderData.side} ${orderData.quantity || 1} ${isForex ? 'unit' : 'shares'} of ${orderData.symbol} @ ${priceDisplay}. Active in Open Virtual Positions below.`
       });
       return { success: true, data: res };
     } catch (err: any) {

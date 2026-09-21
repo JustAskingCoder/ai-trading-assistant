@@ -69,6 +69,9 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                 {positions.map(p => {
                   const isProfit = (p.unrealized_pnl ?? 0) >= 0;
                   const windowStatus = getWindowStatus(p.entry_time);
+                  const isForex = p.symbol.includes('USD') || p.symbol.includes('EUR') || p.symbol.includes('GBP');
+                  const prefix = isForex ? (p.symbol.includes('INR') ? '₹' : '') : '₹';
+                  const dec = isForex ? 4 : 2;
                   return (
                     <tr key={p.id} className="hover:bg-dark-700/30">
                       <td className="py-2.5 font-bold text-white">{p.symbol}</td>
@@ -84,22 +87,22 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                         </span>
                       </td>
                       <td className="py-2.5 font-medium">{p.quantity}</td>
-                      <td className="py-2.5 text-slate-300">₹{(p.average_price ?? 0).toFixed(2)}</td>
-                      <td className="py-2.5 text-white font-medium">₹{(p.current_price ?? p.average_price ?? 0).toFixed(2)}</td>
+                      <td className="py-2.5 text-slate-300">{prefix}{(p.average_price ?? 0).toFixed(dec)}</td>
+                      <td className="py-2.5 text-white font-medium">{prefix}{(p.current_price ?? p.average_price ?? 0).toFixed(dec)}</td>
                       <td className="py-2.5">
-                        {p.stop_loss !== null && p.stop_loss !== undefined && Math.abs(p.stop_loss - p.average_price) < 0.05 ? (
+                        {p.stop_loss !== null && p.stop_loss !== undefined && Math.abs(p.stop_loss - p.average_price) < (isForex ? 0.0005 : 0.05) ? (
                           <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold text-sky-300 border border-sky-500/30">
-                            🛡 Breakeven (₹{p.stop_loss.toFixed(2)})
+                            🛡 Breakeven ({prefix}{p.stop_loss.toFixed(dec)})
                           </span>
                         ) : (
                           <span className="text-red-400 font-semibold">
-                            {p.stop_loss ? '₹' + p.stop_loss.toFixed(2) : '—'}
+                            {p.stop_loss ? prefix + p.stop_loss.toFixed(dec) : '—'}
                           </span>
                         )}
                       </td>
                       <td className="py-2.5">
                         <span className="text-emerald-400 font-semibold">
-                          {p.target ? `₹${p.target.toFixed(2)}` : '—'}
+                          {p.target ? `${prefix}${p.target.toFixed(dec)}` : '—'}
                         </span>
                       </td>
                       <td className="py-2.5">
