@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote } from '../types';
+import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus } from '../types';
 
 const client = axios.create({
   baseURL: '/api'
@@ -47,5 +47,9 @@ export const api = {
   uploadCsv: (formData: FormData) =>
     client.post('/data/upload', formData, { headers: { 'Content-Type': 'multipart/form-data' } }).then(r => r.data),
   getSettings: () => client.get('/settings').then(r => r.data),
-  updateSettings: (settings: any) => client.put('/settings', settings).then(r => r.data)
+  updateSettings: (settings: any) => client.put('/settings', settings).then(r => r.data),
+  getZerodhaStatus: (): Promise<ZerodhaStatus> => client.get('/zerodha/status').then(r => r.data),
+  connectZerodha: (data: { mode: 'ENCTOKEN' | 'API_KEY'; enctoken?: string; api_key?: string; access_token?: string }) =>
+    client.post('/zerodha/connect', data).then(r => r.data),
+  disconnectZerodha: () => client.post('/zerodha/disconnect').then(r => r.data)
 };

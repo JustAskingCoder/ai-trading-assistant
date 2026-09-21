@@ -9,7 +9,7 @@ from backend.core.logging import logger
 from backend.database.init_db import init_db
 from backend.data.market_simulator import simulator
 from backend.data.live_market_service import live_service
-from backend.api.routes import market, trading, ai, backtesting, settings as settings_route
+from backend.api.routes import market, trading, ai, backtesting, settings as settings_route, zerodha
 
 
 @asynccontextmanager
@@ -59,6 +59,7 @@ app.include_router(trading.router)
 app.include_router(ai.router)
 app.include_router(backtesting.router)
 app.include_router(settings_route.router)
+app.include_router(zerodha.router)
 
 
 @app.get("/api/health", tags=["Health"])

@@ -143,3 +143,12 @@ export interface WatchlistQuote {
   strategy?: string;
   confidence?: number;
 }
+
+export interface ZerodhaStatus {
+  is_connected: boolean;
+  mode: 'ENCTOKEN' | 'API_KEY' | 'DISCONNECTED';
+  user_id?: string | null;
+  user_name?: string | null;
+  broker: string;
+  data_source: 'ZERODHA' | 'YFINANCE';
+}

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { api } from './services/api';
-import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote } from './types';
+import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus } from './types';
 import { CandlestickChart } from './components/charts/CandlestickChart';
 import { PortfolioCard } from './components/dashboard/PortfolioCard';
 import { SignalCard } from './components/dashboard/SignalCard';
@@ -9,6 +9,7 @@ import { PositionTable } from './components/trading/PositionTable';
 import { PaperOrderModal } from './components/trading/PaperOrderModal';
 import { BacktestView } from './components/backtesting/BacktestView';
 import { MultiAssetWatchlist } from './components/dashboard/MultiAssetWatchlist';
+import { ZerodhaConnectModal } from './components/dashboard/ZerodhaConnectModal';
 import {
   Play, Pause, Square, RotateCcw, Upload, ShieldAlert,
   ShieldCheck, Activity, Terminal, RefreshCw, BarChart2,
@@ -60,6 +61,8 @@ export default function App() {
   // Modals
   const [orderModalOpen, setOrderModalOpen] = useState(false);
   const [selectedSignalForOrder, setSelectedSignalForOrder] = useState<Signal | null>(null);
+  const [zerodhaModalOpen, setZerodhaModalOpen] = useState(false);
+  const [zerodhaStatus, setZerodhaStatus] = useState<ZerodhaStatus | null>(null);
   const [activeTab, setActiveTab] = useState<'live' | 'backtest'>('live');
 
   // Load portfolio and positions data
@@ -100,6 +103,7 @@ export default function App() {
 
   useEffect(() => {
     fetchData();
+    api.getZerodhaStatus().then(setZerodhaStatus).catch(() => {});
   }, [symbol]);
 
   // WebSocket Live Stream Connection
@@ -547,6 +551,11 @@ export default function App() {
               <span className="rounded bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 text-[11px] font-bold text-sky-400">
                 PAPER MODE
               </span>
+              {zerodhaStatus?.is_connected && (
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 px-2.5 py-0.5 text-[11px] font-black text-emerald-300 shadow-sm animate-pulse">
+                  ⚡ ZERODHA 0-DELAY
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-400">Local Quantitative Replay, Technical Patterns & Structured AI Strategy</p>
           </div>
@@ -671,6 +680,32 @@ export default function App() {
           >
             <RotateCcw className="h-3.5 w-3.5" />
             <span>Reset Portfolio</span>
+          </button>
+
+          {/* Zerodha Kite 0-Delay Feed Connect */}
+          <button
+            onClick={() => setZerodhaModalOpen(true)}
+            title={zerodhaStatus?.is_connected ? `Connected to Zerodha Kite (${zerodhaStatus.user_name || zerodhaStatus.user_id})` : "Connect Zerodha Kite for 0-Delay Live Market Data"}
+            className={`flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-bold transition-all shadow-sm ${
+              zerodhaStatus?.is_connected
+                ? 'border-emerald-500/50 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25'
+                : 'border-dark-600 bg-dark-700 text-slate-200 hover:bg-dark-600 hover:text-amber-400 hover:border-amber-500/40'
+            }`}
+          >
+            {zerodhaStatus?.is_connected ? (
+              <>
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+                <span>🪁 {zerodhaStatus.user_name || 'Zerodha'} (0-Delay)</span>
+              </>
+            ) : (
+              <>
+                <span>🪁</span>
+                <span>Connect Zerodha</span>
+              </>
+            )}
           </button>
 
           {/* Global Kill Switch */}
@@ -799,6 +834,29 @@ export default function App() {
         signal={selectedSignalForOrder}
         onClose={() => setOrderModalOpen(false)}
         onSubmit={handleOrderSubmit}
+      />
+
+      {/* Zerodha Kite Live Feed Connection Modal */}
+      <ZerodhaConnectModal
+        isOpen={zerodhaModalOpen}
+        status={zerodhaStatus}
+        onClose={() => setZerodhaModalOpen(false)}
+        onStatusChange={(newStatus) => {
+          setZerodhaStatus(newStatus);
+          if (newStatus.is_connected) {
+            setOrderAlert({
+              type: 'success',
+              message: `🪁 Zerodha Kite Live Feed Connected! 0-Delay tick stream activated for ${newStatus.user_name || 'your account'}.`
+            });
+            fetchData();
+          } else {
+            setOrderAlert({
+              type: 'error',
+              message: 'Disconnected from Zerodha Kite. Reverted to standard market feed.'
+            });
+            fetchData();
+          }
+        }}
       />
     </div>
   );

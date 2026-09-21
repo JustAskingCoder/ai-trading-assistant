@@ -12,6 +12,7 @@ from backend.patterns.engine import detect_all_patterns
 from backend.strategies.base_strategy import BreakoutStrategy, MomentumStrategy, TrendFollowingStrategy
 from backend.paper.paper_broker import paper_broker
 from backend.data.market_simulator import simulator
+from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.core.logging import logger
 
 SYMBOL_MAP = {
@@ -105,6 +106,7 @@ class LiveMarketService:
         self._mode: str = "SIMULATOR"
         self._symbol: str = "RELIANCE"
         self._interval: str = "5m"
+        self.data_source: str = "YFINANCE"  # "YFINANCE" or "ZERODHA"
         self._task: Any = None
         self._bg_loop: Optional[asyncio.AbstractEventLoop] = None
         self._bg_thread: Optional[threading.Thread] = None
@@ -208,6 +210,88 @@ class LiveMarketService:
         """Clear cached quotes."""
         self._quote_cache.clear()
 
+    def _build_zerodha_quote_payload(
+        self,
+        clean_sym: str,
+        name: str,
+        market: str,
+        zq: Dict[str, Any],
+        dec: int = 2
+    ) -> Dict[str, Any]:
+        """Construct normalized quote payload directly from Zerodha Kite 0-delay tick."""
+        entry_price = float(zq.get("price", 0.0))
+        change = float(zq.get("change", 0.0))
+        change_pct = float(zq.get("change_percentage", 0.0))
+        open_p = float(zq.get("open", entry_price))
+        high_p = float(zq.get("high", entry_price))
+        low_p = float(zq.get("low", entry_price))
+        vol = float(zq.get("volume", 0.0))
+
+        # Structural brackets calibrated for Scalp Trading
+        structural_risk = max(entry_price * 0.005, 1.0)
+        structural_reward = max(structural_risk * 1.2, entry_price * 0.006)
+
+        if change_pct >= 0.25:
+            signal = "BUY"
+            action = "BUY"
+            confidence = 0.85
+            strategy = "Kite 0-Delay Momentum Scalp"
+            reason = f"Zerodha 0-delay bullish surge (+{change_pct:.2f}%) exceeding VWAP/pivot"
+            sl = round(entry_price - structural_risk, dec)
+            tgt = round(entry_price + structural_reward, dec)
+        elif change_pct <= -0.25:
+            signal = "SELL"
+            action = "SELL"
+            confidence = 0.85
+            strategy = "Kite 0-Delay Short Scalp"
+            reason = f"Zerodha 0-delay bearish drop ({change_pct:.2f}%) breaking day pivot"
+            sl = round(entry_price + structural_risk, dec)
+            tgt = round(entry_price - structural_reward, dec)
+        else:
+            signal = "HOLD"
+            action = "WAIT"
+            confidence = 0.55
+            strategy = "Consolidation"
+            reason = "Zerodha live tick in neutral intraday range"
+            sl = round(entry_price - structural_risk, dec)
+            tgt = round(entry_price + structural_reward, dec)
+
+        risk_dist = abs(entry_price - sl)
+        target_dist = abs(tgt - entry_price)
+        risk_reward = round(target_dist / (risk_dist + 1e-10), 2)
+
+        return {
+            "symbol": clean_sym,
+            "name": name,
+            "price": entry_price,
+            "change": round(change, dec),
+            "change_percentage": round(change_pct, 2),
+            "open": round(open_p, dec),
+            "high": round(high_p, dec),
+            "low": round(low_p, dec),
+            "volume": round(vol, 2),
+            "signal": signal,
+            "action": action,
+            "quantity": 1,
+            "entry_price": entry_price,
+            "stop_loss": sl,
+            "target": tgt,
+            "risk_reward": risk_reward,
+            "target_profit": round(target_dist * 1, dec),
+            "max_risk": round(risk_dist * 1, dec),
+            "reason": reason,
+            "strategy": strategy,
+            "confidence": confidence,
+            "market": market,
+            "source": "ZERODHA (0-DELAY)",
+            "indicators": {
+                "day_high": round(high_p, dec),
+                "day_low": round(low_p, dec),
+                "prev_close": round(float(zq.get("close", entry_price)), dec),
+            },
+            "timestamp": zq.get("timestamp", datetime.now().isoformat())
+        }
+
     def _fetch_single_quote(self, symbol: str, use_cache: bool = True) -> Dict[str, Any]:
         """Fetch quote, calculate metrics, and evaluate signal for a single symbol."""
         raw_sym = symbol.strip()
@@ -224,6 +308,17 @@ class LiveMarketService:
             cached_time, cached_quote = self._quote_cache[cache_key]
             if (now_ts - cached_time < self._cache_ttl) and cached_quote.get("price", 0) > 0:
                 return cached_quote
+
+        # Zero-delay Zerodha Kite integration if connected
+        if self.data_source == "ZERODHA" and zerodha_client.is_connected and not is_forex:
+            try:
+                z_quotes = zerodha_client.get_quotes([clean_sym])
+                if clean_sym in z_quotes:
+                    q = self._build_zerodha_quote_payload(clean_sym, name, market, z_quotes[clean_sym], dec)
+                    self._quote_cache[cache_key] = (now_ts, q)
+                    return q
+            except Exception as e:
+                logger.warning("Failed to fetch Zerodha quote for %s: %s", clean_sym, e)
 
         try:
             ticker = yfinance.Ticker(yf_sym)
@@ -439,13 +534,47 @@ class LiveMarketService:
             }
 
     def get_watchlist_quotes(self, symbols: List[str], use_cache: bool = True) -> List[Dict[str, Any]]:
-        """Fetch watchlist quotes concurrently for a list of symbols."""
+        """Fetch watchlist quotes concurrently for a list of symbols with Zerodha batch optimization."""
         if not symbols:
             return []
 
         clean_symbols = [s.strip() for s in symbols if s and s.strip()]
         if not clean_symbols:
             return []
+
+        # If Zerodha is connected and data_source is ZERODHA, batch fetch Indian equities via Zerodha
+        if self.data_source == "ZERODHA" and zerodha_client.is_connected:
+            try:
+                nse_symbols = [s for s in clean_symbols if get_market_category(s) == "NSE"]
+                z_quotes = zerodha_client.get_quotes(nse_symbols) if nse_symbols else {}
+                
+                quotes = []
+                remaining_symbols = []
+                for s in clean_symbols:
+                    raw_sym = s.strip()
+                    clean_sym = raw_sym.upper().replace(" ", "").replace("/", "")
+                    market = get_market_category(raw_sym)
+                    name = SYMBOL_NAMES.get(clean_sym, clean_sym)
+                    dec = 4 if market == "FOREX" else 2
+
+                    if clean_sym in z_quotes:
+                        q = self._build_zerodha_quote_payload(clean_sym, name, market, z_quotes[clean_sym], dec)
+                        self._quote_cache[clean_sym] = (time.time(), q)
+                        quotes.append(q)
+                    else:
+                        remaining_symbols.append(raw_sym)
+
+                if remaining_symbols:
+                    from concurrent.futures import ThreadPoolExecutor
+                    from functools import partial
+                    fetch_fn = partial(self._fetch_single_quote, use_cache=use_cache)
+                    with ThreadPoolExecutor(max_workers=min(len(remaining_symbols), 4)) as executor:
+                        rem_quotes = list(executor.map(fetch_fn, remaining_symbols))
+                        quotes.extend([q for q in rem_quotes if q is not None])
+
+                return quotes
+            except Exception as e:
+                logger.warning("Batch Zerodha watchlist fetch error: %s", e)
 
         from concurrent.futures import ThreadPoolExecutor
         from functools import partial
@@ -519,6 +648,21 @@ class LiveMarketService:
                     if records and ind_df is not None and not ind_df.empty:
                         latest_candle = records[-1]
                         close_p = float(latest_candle["close"])
+                        
+                        # If Zerodha is active, overwrite latest candle close with 0-delay tick
+                        if self.data_source == "ZERODHA" and zerodha_client.is_connected:
+                            try:
+                                z_quotes = zerodha_client.get_quotes([self._symbol])
+                                if self._symbol in z_quotes and z_quotes[self._symbol].get("price", 0) > 0:
+                                    z_p = float(z_quotes[self._symbol]["price"])
+                                    close_p = z_p
+                                    latest_candle["close"] = close_p
+                                    latest_candle["high"] = max(float(latest_candle.get("high", close_p)), close_p)
+                                    latest_candle["low"] = min(float(latest_candle.get("low", close_p)), close_p)
+                                    latest_candle["volume"] = float(z_quotes[self._symbol].get("volume", latest_candle.get("volume", 0)))
+                            except Exception as ze:
+                                logger.debug("Could not fetch Zerodha stream tick for %s: %s", self._symbol, ze)
+
                         raw_ts = latest_candle.get("timestamp")
                         candle_dt = pd.to_datetime(raw_ts).to_pydatetime() if raw_ts else None
 

@@ -1,6 +1,7 @@
 """Comprehensive test suite for AI Trading Assistant."""
 import asyncio
 from datetime import datetime, timedelta
+from unittest.mock import patch
 import pytest
 import pandas as pd
 import numpy as np
@@ -1484,5 +1485,97 @@ def test_api_market_watchlist_endpoint():
         assert data[1]["market"] == "FOREX"
         assert data[1]["action"] == "WAIT"
         mock_fn.assert_called_once_with(["RELIANCE", "USDINR"])
+
+
+def test_zerodha_status_api():
+    """Verify /api/zerodha/status endpoint returns valid status."""
+    client = TestClient(app)
+    res = client.get("/api/zerodha/status")
+    assert res.status_code == 200
+    data = res.json()
+    assert "is_connected" in data
+    assert "broker" in data
+    assert data["broker"] == "Zerodha Kite"
+
+
+def test_zerodha_connect_validation_error():
+    """Verify missing credentials returns HTTP 400."""
+    client = TestClient(app)
+    # Missing enctoken in ENCTOKEN mode
+    res = client.post("/api/zerodha/connect", json={"mode": "ENCTOKEN", "enctoken": ""})
+    assert res.status_code == 400
+
+    # Missing keys in API_KEY mode
+    res2 = client.post("/api/zerodha/connect", json={"mode": "API_KEY", "api_key": ""})
+    assert res2.status_code == 400
+
+
+def test_zerodha_connect_and_disconnect_enctoken_mock():
+    """Verify connecting with valid enctoken switches data_source and disconnects cleanly."""
+    from backend.integrations.zerodha.kite_client import zerodha_client
+    from backend.data.live_market_service import live_service
+
+    client = TestClient(app)
+    with patch.object(zerodha_client, "connect_with_enctoken", return_value=(True, "Successfully connected")):
+        zerodha_client.user_id = "DEMO123"
+        zerodha_client.user_name = "Jane Trader"
+        zerodha_client.mode = "ENCTOKEN"
+        zerodha_client.is_connected = True
+
+        res = client.post("/api/zerodha/connect", json={"mode": "ENCTOKEN", "enctoken": "mock_enctoken_abc"})
+        assert res.status_code == 200
+        data = res.json()
+        assert data["status"] == "connected"
+        assert data["data_source"] == "ZERODHA"
+        assert live_service.data_source == "ZERODHA"
+
+        # Check status endpoint reflects connection
+        status_res = client.get("/api/zerodha/status")
+        assert status_res.status_code == 200
+        assert status_res.json()["is_connected"] is True
+
+        # Disconnect
+        disc_res = client.post("/api/zerodha/disconnect")
+        assert disc_res.status_code == 200
+        assert disc_res.json()["status"] == "disconnected"
+        assert live_service.data_source == "YFINANCE"
+
+
+def test_zerodha_batch_quotes_in_watchlist():
+    """Verify get_watchlist_quotes uses Zerodha 0-delay batch quotes when connected."""
+    from backend.integrations.zerodha.kite_client import zerodha_client
+    from backend.data.live_market_service import live_service
+
+    live_service.data_source = "ZERODHA"
+    zerodha_client.is_connected = True
+
+    mock_z_quotes = {
+        "RELIANCE": {
+            "symbol": "RELIANCE",
+            "price": 3050.0,
+            "change": 15.0,
+            "change_percentage": 0.49,
+            "open": 3035.0,
+            "high": 3060.0,
+            "low": 3030.0,
+            "close": 3035.0,
+            "volume": 1200000.0,
+            "timestamp": "2026-09-21T12:00:00"
+        }
+    }
+
+    try:
+        with patch.object(zerodha_client, "get_quotes", return_value=mock_z_quotes):
+            quotes = live_service.get_watchlist_quotes(["RELIANCE"])
+            assert len(quotes) == 1
+            assert quotes[0]["symbol"] == "RELIANCE"
+            assert quotes[0]["price"] == 3050.0
+            assert quotes[0]["source"] == "ZERODHA (0-DELAY)"
+            assert quotes[0]["action"] == "BUY"
+            assert quotes[0]["risk_reward"] >= 0.8
+    finally:
+        zerodha_client.is_connected = False
+        live_service.data_source = "YFINANCE"
+
 
 
