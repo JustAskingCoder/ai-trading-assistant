@@ -1,0 +1,1502 @@
+{
+  "tasks": [
+    {
+      "id": "task-001",
+      "title": "Phase 1: Project Setup & Core Infrastructure",
+      "description": "Initialize backend FastAPI, SQLite database, Pydantic settings, React/Vite/Tailwind frontend, and base layout.",
+      "status": "done",
+      "assignee": "god",
+      "priority": "high",
+      "deps": [],
+      "subtasks": [
+        {
+          "id": "subtask-1.1",
+          "title": "Create project directory tree and config",
+          "done": true
+        },
+        {
+          "id": "subtask-1.2",
+          "title": "Setup virtual environment and requirements.txt",
+          "done": true
+        },
+        {
+          "id": "subtask-1.3",
+          "title": "Define 12 SQLAlchemy ORM models and sessionmaker",
+          "done": true
+        },
+        {
+          "id": "subtask-1.4",
+          "title": "Seed default paper portfolio with initial capital",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-002",
+      "title": "Phase 2: CSV Market Data Loader & Validation",
+      "description": "Build CSV loader supporting 1m, 5m, 15m, 1h, 1D data with validation for missing, duplicate, or disordered candles.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-001"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-2.1",
+          "title": "Implement data validator with chronological and price checks",
+          "done": true
+        },
+        {
+          "id": "subtask-2.2",
+          "title": "Implement CSV ingestion engine and database importer",
+          "done": true
+        },
+        {
+          "id": "subtask-2.3",
+          "title": "Generate realistic 500-candle sample dataset (RELIANCE_5m.csv)",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-003",
+      "title": "Phase 3: Market Simulator & WebSocket Stream",
+      "description": "Historical candle replay simulator with Start/Pause/Stop/Reset and 1x-50x speeds broadcasting via /ws/market.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-002"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-3.1",
+          "title": "Implement playback engine with speed multipliers",
+          "done": true
+        },
+        {
+          "id": "subtask-3.2",
+          "title": "Mount FastAPI WebSocket endpoint (/ws/market)",
+          "done": true
+        },
+        {
+          "id": "subtask-3.3",
+          "title": "Broadcast ticks, indicator updates, and auto-evaluate setups",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-004",
+      "title": "Phase 4: Candlestick & Volume Charting",
+      "description": "Interactive financial charts rendering candles, EMA overlays, VWAP, and volume bars with timeframe switching.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-001",
+        "task-003"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-4.1",
+          "title": "Integrate Lightweight Charts candlestick series",
+          "done": true
+        },
+        {
+          "id": "subtask-4.2",
+          "title": "Add volume histogram with color-coded buying/selling pressure",
+          "done": true
+        },
+        {
+          "id": "subtask-4.3",
+          "title": "Add real-time technical indicator overlays (EMA20, EMA50, VWAP)",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-005",
+      "title": "Phase 5: Technical Indicator Engine",
+      "description": "Deterministic calculations for EMA(20/50), SMA(20), RSI(14), MACD(12/26/9), VWAP, ATR(14), Bollinger Bands, ADX(14), Volume SMA.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-002"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-5.1",
+          "title": "Compute trend indicators (EMA20, EMA50, SMA20)",
+          "done": true
+        },
+        {
+          "id": "subtask-5.2",
+          "title": "Compute momentum indicators (RSI14, MACD, Signal, Hist)",
+          "done": true
+        },
+        {
+          "id": "subtask-5.3",
+          "title": "Compute volatility and volume indicators (VWAP, ATR, BB, ADX, Vol SMA)",
+          "done": true
+        },
+        {
+          "id": "subtask-5.4",
+          "title": "Create unified calculate_indicators function",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-006",
+      "title": "Phase 6: Deterministic Pattern Detection",
+      "description": "Rule-based pattern recognition for Engulfing, Doji, Hammer, Breakouts, and Crossovers producing structured confidence & evidence.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "medium",
+      "deps": [
+        "task-005"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-6.1",
+          "title": "Candlestick pattern detection (Engulfing, Doji, Hammer, Star)",
+          "done": true
+        },
+        {
+          "id": "subtask-6.2",
+          "title": "Breakout and crossover detection (EMA, MACD, Volume, Support/Resistance)",
+          "done": true
+        },
+        {
+          "id": "subtask-6.3",
+          "title": "Format outputs with direction, strength score, and evidence list",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-007",
+      "title": "Phase 7: Strategy Engine",
+      "description": "Implement BaseStrategy interface with MomentumStrategy, BreakoutStrategy, and TrendFollowingStrategy generating BUY/SELL/HOLD.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-005",
+        "task-006"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-7.1",
+          "title": "Define BaseStrategy abstract interface",
+          "done": true
+        },
+        {
+          "id": "subtask-7.2",
+          "title": "Implement BreakoutStrategy with volume and ADX filters",
+          "done": true
+        },
+        {
+          "id": "subtask-7.3",
+          "title": "Implement MomentumStrategy and TrendFollowingStrategy",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-008",
+      "title": "Phase 8: Deterministic Risk Management Engine",
+      "description": "Mandatory risk controls: max 0.5% risk/trade, max 2% daily loss, max 3 open positions, min 1.5 R:R, position sizing formula, kill switch.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-001"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-8.1",
+          "title": "Implement position sizing formula based on risk budget",
+          "done": true
+        },
+        {
+          "id": "subtask-8.2",
+          "title": "Enforce daily loss ceiling and open position limits",
+          "done": true
+        },
+        {
+          "id": "subtask-8.3",
+          "title": "Implement emergency Global Kill Switch",
+          "done": true
+        },
+        {
+          "id": "subtask-8.4",
+          "title": "Maintain risk audit log in risk_events table",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-009",
+      "title": "Phase 9: Paper Broker & Virtual Portfolio",
+      "description": "Simulated order placement, fills, stop-loss, target, position management, realized/unrealized P&L, and trade history ledger.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-008"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-9.1",
+          "title": "Build PaperBroker order placement and execution simulation",
+          "done": true
+        },
+        {
+          "id": "subtask-9.2",
+          "title": "Implement real-time mark-to-market position updates",
+          "done": true
+        },
+        {
+          "id": "subtask-9.3",
+          "title": "Implement trade settlement and P&L accounting",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-010",
+      "title": "Phase 10: Backtesting Engine",
+      "description": "Historical simulation strictly avoiding look-ahead bias, producing equity curve, drawdown, win rate, Sharpe ratio, and trade log.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "medium",
+      "deps": [
+        "task-007",
+        "task-008"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-10.1",
+          "title": "Build sequential look-ahead-bias-free simulation loop",
+          "done": true
+        },
+        {
+          "id": "subtask-10.2",
+          "title": "Calculate win rate, profit factor, max drawdown, and net P&L",
+          "done": true
+        },
+        {
+          "id": "subtask-10.3",
+          "title": "Generate historical equity curve and trade logs",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-011",
+      "title": "Phase 11: AI Provider Abstraction (OpenAI & Claude)",
+      "description": "AIProvider interface with OpenAIProvider, ClaudeProvider, and LocalHeuristic validating strict JSON schemas with fallback to HOLD.",
+      "status": "done",
+      "assignee": "agent-architect",
+      "priority": "medium",
+      "deps": [
+        "task-007",
+        "task-008"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-11.1",
+          "title": "Define Pydantic request/response schemas",
+          "done": true
+        },
+        {
+          "id": "subtask-11.2",
+          "title": "Implement OpenAI and Claude API integrations",
+          "done": true
+        },
+        {
+          "id": "subtask-11.3",
+          "title": "Implement LocalHeuristic fallback for zero-cost operation",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-012",
+      "title": "Phase 12: Professional React Financial Dashboard",
+      "description": "Dark terminal trading UI with Overview, Watchlist, SignalCard, AI Analysis, Paper Trading Modal, Risk Dashboard, and Backtest UI.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-004",
+        "task-009",
+        "task-011"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-12.1",
+          "title": "Build header toolbar with simulator controls and Kill Switch",
+          "done": true
+        },
+        {
+          "id": "subtask-12.2",
+          "title": "Build Portfolio KPI cards and interactive Signal card",
+          "done": true
+        },
+        {
+          "id": "subtask-12.3",
+          "title": "Build AI Analysis card with risk invalidations",
+          "done": true
+        },
+        {
+          "id": "subtask-12.4",
+          "title": "Build Paper Order modal and Positions/Trades tables",
+          "done": true
+        },
+        {
+          "id": "subtask-12.5",
+          "title": "Build Quantitative Backtest tab and metrics grid",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-013",
+      "title": "Phase 13: Zerodha Kite & MCP Future Architecture",
+      "description": "BrokerInterface abstraction, ZerodhaBroker stub, and Zerodha MCP client design with strict isolation from risk engine.",
+      "status": "done",
+      "assignee": "agent-architect",
+      "priority": "low",
+      "deps": [
+        "task-009"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-13.1",
+          "title": "Define BrokerInterface abstraction contract",
+          "done": true
+        },
+        {
+          "id": "subtask-13.2",
+          "title": "Create ZerodhaBroker adapter stub with live guard",
+          "done": true
+        },
+        {
+          "id": "subtask-13.3",
+          "title": "Build MarketIntelligenceMCP client for external queries",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-014",
+      "title": "Fix Simulator Async Event Loop & Real-Time Playback",
+      "description": "Resolve RuntimeError: no running event loop when starting MarketSimulator from /api/simulator/control endpoint so Play button streams candles over WebSocket.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-003"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-14.1",
+          "title": "Convert /api/simulator/control endpoint to async def",
+          "done": true
+        },
+        {
+          "id": "subtask-14.2",
+          "title": "Ensure MarketSimulator.start schedules loop on running event loop",
+          "done": true
+        },
+        {
+          "id": "subtask-14.3",
+          "title": "Test /api/simulator/control?action=start returns 200 and broadcasts candle ticks",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-015",
+      "title": "Fix AI Analysis Schema Validation & Result Display",
+      "description": "Resolve PydanticUserError in backend/ai/schemas.py due to missing Any import so clicking Analyze with AI executes smoothly and renders the AI card.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-011"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-15.1",
+          "title": "Add Any import to backend/ai/schemas.py and rebuild models",
+          "done": true
+        },
+        {
+          "id": "subtask-15.2",
+          "title": "Add error notification in frontend/src/App.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-15.3",
+          "title": "Verify POST /api/ai/analyze returns 200 and renders AI card",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-016",
+      "title": "Reset Virtual Portfolio & Position Close Controls",
+      "description": "Add backend endpoints and frontend UI controls to reset the virtual portfolio back to \u20b91,00,000 cash and close open positions at market price.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "high",
+      "deps": [
+        "task-009",
+        "task-012"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-16.1",
+          "title": "Add POST /api/portfolio/reset endpoint and paper_broker.reset_portfolio",
+          "done": true
+        },
+        {
+          "id": "subtask-16.2",
+          "title": "Add POST /api/positions/{id}/close endpoint to exit individual positions",
+          "done": true
+        },
+        {
+          "id": "subtask-16.3",
+          "title": "Add api methods and Close button in PositionTable.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-16.4",
+          "title": "Add Reset Portfolio button in dashboard header toolbar",
+          "done": true
+        },
+        {
+          "id": "subtask-16.5",
+          "title": "Verify full reset restores \u20b91,00,000 cash and tests pass",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-017",
+      "title": "Actionable Trade Execution Card & Order Feedback",
+      "description": "Make the signal and AI card show exact recommended quantity to buy/sell, stop loss, target, potential profit/loss, and 1-click execution with success/fail notification.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-016"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-17.1",
+          "title": "Calculate recommended quantity, risk rupees, and reward rupees in signals and AI card",
+          "done": true
+        },
+        {
+          "id": "subtask-17.2",
+          "title": "Redesign SignalCard with prominent BUY/SELL X SHARES headline and metrics grid",
+          "done": true
+        },
+        {
+          "id": "subtask-17.3",
+          "title": "Add 1-click Place Order execution button in SignalCard and AIAnalysisCard",
+          "done": true
+        },
+        {
+          "id": "subtask-17.4",
+          "title": "Display immediate inline Trade Successful / Trade Rejected banner with details",
+          "done": true
+        },
+        {
+          "id": "subtask-17.5",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-018",
+      "title": "Backend Bracket Order Exit Automation & Position SL/Target Persistence",
+      "description": "Persist stop_loss and target on Position model, automatically trigger position exits in update_market_price when SL or Target is hit, broadcast AUTO_EXIT_TRIGGERED via WebSocket, and return SL/Target in positions API.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-016"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-18.1",
+          "title": "Add stop_loss and target columns to Position model and DB schema migration",
+          "done": true
+        },
+        {
+          "id": "subtask-18.2",
+          "title": "Persist stop_loss and target in paper_broker.place_order",
+          "done": true
+        },
+        {
+          "id": "subtask-18.3",
+          "title": "Evaluate SL/Target hits and execute auto-exits in update_market_price",
+          "done": true
+        },
+        {
+          "id": "subtask-18.4",
+          "title": "Broadcast AUTO_EXIT_TRIGGERED over WebSocket from simulator loop",
+          "done": true
+        },
+        {
+          "id": "subtask-18.5",
+          "title": "Return stop_loss/target in GET /api/positions and verify test suite passes",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-019",
+      "title": "Frontend Position Table SL/Target Columns & Auto-Exit Toast Notifications",
+      "description": "Display Stop Loss and Target columns in PositionTable.tsx, update types, and show instant alert/toast when WebSocket broadcasts AUTO_EXIT_TRIGGERED.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-018"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-19.1",
+          "title": "Update PositionData interface with stop_loss and target fields",
+          "done": true
+        },
+        {
+          "id": "subtask-19.2",
+          "title": "Render Stop Loss and Target columns with color badges in PositionTable.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-19.3",
+          "title": "Listen for AUTO_EXIT_TRIGGERED and display alert toast on exit in App.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-19.4",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-020",
+      "title": "Backend Capital Calibration to \u20b910,000 & \u20b95,000 Trade Investment Cap",
+      "description": "Calibrate default initial capital to \u20b910,000, enforce max \u20b95,000 investment per trade in deterministic risk manager, adjust risk limits, update reset_portfolio, and reset active portfolio.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-018"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-20.1",
+          "title": "Set INITIAL_CAPITAL = 10000.0, MAX_INVESTMENT_PER_TRADE = 5000.0 in config.py",
+          "done": true
+        },
+        {
+          "id": "subtask-20.2",
+          "title": "Enforce \u20b95,000 trade cap and risk budget in risk_manager.py",
+          "done": true
+        },
+        {
+          "id": "subtask-20.3",
+          "title": "Calibrate paper_broker get_portfolio and reset_portfolio to \u20b910,000",
+          "done": true
+        },
+        {
+          "id": "subtask-20.4",
+          "title": "Update tests in test_trading_system.py and verify 100% pass",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-021",
+      "title": "Frontend Position Sizing & \u20b95,000 Trade Allocation Calibration",
+      "description": "Calibrate SignalCard and AIAnalysisCard position sizing to enforce \u20b95,000 maximum investment per trade and proportional Stop Loss risk for \u20b910,000 account.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-020"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-21.1",
+          "title": "Update SignalCard.tsx sizing formula to cap investment at \u20b95,000",
+          "done": true
+        },
+        {
+          "id": "subtask-21.2",
+          "title": "Update AIAnalysisCard.tsx sizing to enforce \u20b95,000 investment cap",
+          "done": true
+        },
+        {
+          "id": "subtask-21.3",
+          "title": "Update App.tsx reset confirmation dialog to \u20b910,000",
+          "done": true
+        },
+        {
+          "id": "subtask-21.4",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-022",
+      "title": "Backend 10-Minute Position Expiry Automation & Entry Timestamp Persistence",
+      "description": "Store entry_time on Position, evaluate 10-minute maximum trade holding window in update_market_price, auto-exit expired positions at market price, and broadcast AUTO_EXIT_TRIGGERED.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-020"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-22.1",
+          "title": "Add entry_time column to Position model and DB migration",
+          "done": true
+        },
+        {
+          "id": "subtask-22.2",
+          "title": "Record entry_time in paper_broker.place_order",
+          "done": true
+        },
+        {
+          "id": "subtask-22.3",
+          "title": "Evaluate 10-minute expiry in update_market_price and execute auto-exit",
+          "done": true
+        },
+        {
+          "id": "subtask-22.4",
+          "title": "Return entry_time in GET /api/positions and broadcast WebSocket alert",
+          "done": true
+        },
+        {
+          "id": "subtask-22.5",
+          "title": "Add pytest tests verifying 10-minute auto-exit and verify 100% pass",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-023",
+      "title": "Frontend 10-Minute Window Tracker & Manual Exit Preservation",
+      "description": "Display 10m Trading Window column in PositionTable.tsx, add 10m window badges in signal cards, handle 10m expiry toast alert in App.tsx, and preserve manual Close button.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-022"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-23.1",
+          "title": "Update PositionData interface with entry_time",
+          "done": true
+        },
+        {
+          "id": "subtask-23.2",
+          "title": "Add Trading Window column in PositionTable.tsx and keep manual Close button",
+          "done": true
+        },
+        {
+          "id": "subtask-23.3",
+          "title": "Add 10m window indicator in SignalCard and AIAnalysisCard",
+          "done": true
+        },
+        {
+          "id": "subtask-23.4",
+          "title": "Handle 10m window expiry alert toast in App.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-23.5",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-024",
+      "title": "Backend Order Execution Hardening & Real-Time Window Calibration",
+      "description": "Fix 10-minute expiry in paper_broker to evaluate real wall-clock elapsed time (datetime.utcnow() - pos.entry_time).total_seconds() >= 600, accept req.quantity in place_paper_order, and ensure directionally valid brackets upon execution.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-022"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-24.1",
+          "title": "Fix paper_broker 10-minute expiry to evaluate real wall-clock elapsed time >= 600 seconds",
+          "done": true
+        },
+        {
+          "id": "subtask-24.2",
+          "title": "Accept req.quantity in place_paper_order while enforcing risk caps and cash",
+          "done": true
+        },
+        {
+          "id": "subtask-24.3",
+          "title": "Ensure directional validity of entry price and brackets on entry",
+          "done": true
+        },
+        {
+          "id": "subtask-24.4",
+          "title": "Run pytest test suite verifying 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-025",
+      "title": "Frontend Live 10-Minute Countdown Timer, Instant Position Render & Stale Signal Protection",
+      "description": "Implement live 1-second countdown timer for open positions showing \u23f1 mm:ss left, add Quick Paper Order trigger, protect against stale signal execution, show prominent success alert on order placement, and update PortfolioCard subtitles.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-024"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-25.1",
+          "title": "Add live 1s countdown timer in PositionTable.tsx showing \u23f1 mm:ss left",
+          "done": true
+        },
+        {
+          "id": "subtask-25.2",
+          "title": "Add Quick Paper Order action allowing instant 10m trade at market price",
+          "done": true
+        },
+        {
+          "id": "subtask-25.3",
+          "title": "Add stale signal detection in SignalCard.tsx to prevent invalid entry",
+          "done": true
+        },
+        {
+          "id": "subtask-25.4",
+          "title": "Show prominent global success alert on order placement and auto-scroll to Open Positions",
+          "done": true
+        },
+        {
+          "id": "subtask-25.5",
+          "title": "Update PortfolioCard.tsx subtitles to \u20b910,000 capital and 3% daily loss limit",
+          "done": true
+        },
+        {
+          "id": "subtask-25.6",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-026",
+      "title": "Quantitative Strategy Refactoring & Bi-Directional Detection",
+      "description": "Add Short/SELL setups, pullback entry filters, structural pivot stop loss with 0.5 ATR cushion, realistic 0.4%-0.6% 10-minute scalp targets, and dynamic trailing breakeven auto-lock in paper broker.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-024"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-26.1",
+          "title": "Add Short / SELL Setups across strategies in base_strategy.py",
+          "done": true
+        },
+        {
+          "id": "subtask-26.2",
+          "title": "Implement Pullback Entry Filters to prevent buying overbought tops",
+          "done": true
+        },
+        {
+          "id": "subtask-26.3",
+          "title": "Implement structural SL behind pivot + 0.5 ATR and realistic 0.4%-0.6% scalp target",
+          "done": true
+        },
+        {
+          "id": "subtask-26.4",
+          "title": "Add trailing breakeven auto-lock in paper_broker when profit reaches +0.3%",
+          "done": true
+        },
+        {
+          "id": "subtask-26.5",
+          "title": "Calibrate sizing strictly to minimal 1 share for \u20b910k capital",
+          "done": true
+        },
+        {
+          "id": "subtask-26.6",
+          "title": "Run pytest test suite verifying 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-027",
+      "title": "Frontend Bi-Directional UI, Scalp Target Display & Breakeven Alerts",
+      "description": "Update SignalCard and AIAnalysisCard for BUY/SELL setups, display realistic scalp targets, add Breakeven Locked badge in PositionTable, and handle breakeven toast alert in App.tsx.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-026"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-27.1",
+          "title": "Update SignalCard and AIAnalysisCard to support BUY and SELL (Short) setups",
+          "done": true
+        },
+        {
+          "id": "subtask-27.2",
+          "title": "Display realistic scalp metrics and minimal 1 share recommendation",
+          "done": true
+        },
+        {
+          "id": "subtask-27.3",
+          "title": "Add Breakeven Locked badge in PositionTable when SL trailed to entry",
+          "done": true
+        },
+        {
+          "id": "subtask-27.4",
+          "title": "Handle BREAKEVEN_TRAILED WebSocket alert in App.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-27.5",
+          "title": "Calibrate handleQuickOrder with 0.5% target and structural SL",
+          "done": true
+        },
+        {
+          "id": "subtask-27.6",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-028",
+      "title": "Backend Live Market Service & Real-Time Poller",
+      "description": "Build live_market_service.py to stream live intraday candles for NSE stocks via yfinance, compute indicators, evaluate strategies, mark positions to market, and broadcast over WebSocket.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-026"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-28.1",
+          "title": "Build live_market_service.py for real-time NSE data streaming via yfinance",
+          "done": true
+        },
+        {
+          "id": "subtask-28.2",
+          "title": "Compute indicators and evaluate bi-directional strategies in real time",
+          "done": true
+        },
+        {
+          "id": "subtask-28.3",
+          "title": "Add endpoints to toggle and query data mode (LIVE vs SIMULATOR)",
+          "done": true
+        },
+        {
+          "id": "subtask-28.4",
+          "title": "Broadcast real-time live candles and events over /ws/market WebSocket",
+          "done": true
+        },
+        {
+          "id": "subtask-28.5",
+          "title": "Run pytest test suite verifying 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-029",
+      "title": "Frontend Live Market Mode Toggle & Real-Time Feed UI",
+      "description": "Add Live Feed vs Simulator toggle in dashboard header, live pulsing badge, and connect chart and paper execution to live real-time NSE data.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-028"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-29.1",
+          "title": "Add Live Feed vs Simulator mode toggle switch in header toolbar",
+          "done": true
+        },
+        {
+          "id": "subtask-29.2",
+          "title": "Add pulsing green LIVE NSE status indicator badge",
+          "done": true
+        },
+        {
+          "id": "subtask-29.3",
+          "title": "Update api service with getMarketMode and setMarketMode endpoints",
+          "done": true
+        },
+        {
+          "id": "subtask-29.4",
+          "title": "Wire chart and paper order execution to live market quotes",
+          "done": true
+        },
+        {
+          "id": "subtask-29.5",
+          "title": "Verify frontend build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-030",
+      "title": "Backend Multi-Asset Watchlist API & Forex Market Integration",
+      "description": "Expand symbol mapping with Forex currency pairs (USD/INR, EUR/USD, GBP/USD, USD/JPY, EUR/INR) and implement GET /api/market/watchlist endpoint returning live quotes, price changes, and signals for multiple assets simultaneously.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-028"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-30.1",
+          "title": "Add Forex symbol mapping (USDINR, EURUSD, GBPUSD, USDJPY, EURINR, GBPINR) in live_market_service.py",
+          "done": true
+        },
+        {
+          "id": "subtask-30.2",
+          "title": "Build get_watchlist_quotes(symbols) fetching live quotes and strategy signals concurrently",
+          "done": true
+        },
+        {
+          "id": "subtask-30.3",
+          "title": "Implement GET /api/market/watchlist endpoint in backend/api/routes/market.py",
+          "done": true
+        },
+        {
+          "id": "subtask-30.4",
+          "title": "Add comprehensive unit tests in tests/test_trading_system.py for watchlist and forex",
+          "done": true
+        },
+        {
+          "id": "subtask-30.5",
+          "title": "Verify full pytest test suite passes with 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-031",
+      "title": "Frontend Multi-Asset Live Watchlist Scanner & Asset Selector UI",
+      "description": "Build MultiAssetWatchlist component showing 4-6 stocks and Forex pairs simultaneously with live prices, % changes, and signals, plus symbol selector dropdown with category tabs (NSE Stocks & Forex).",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-030"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-31.1",
+          "title": "Add getWatchlist API method in frontend/src/services/api.ts",
+          "done": true
+        },
+        {
+          "id": "subtask-31.2",
+          "title": "Build MultiAssetWatchlist.tsx displaying simultaneous multi-ticker cards with live quotes and signals",
+          "done": true
+        },
+        {
+          "id": "subtask-31.3",
+          "title": "Add Symbol Selector Dropdown & Market Category Tabs in header toolbar (NSE vs Forex)",
+          "done": true
+        },
+        {
+          "id": "subtask-31.4",
+          "title": "Wire 1-click asset switching: selecting any watchlist card updates chart and order engine",
+          "done": true
+        },
+        {
+          "id": "subtask-31.5",
+          "title": "Verify frontend production build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-032",
+      "title": "Backend Multi-Asset Trade Decision & Brackets API",
+      "description": "Calculate complete actionable trade decisions for all tracked assets in get_watchlist_quotes: action (BUY/SELL/WAIT), entry price, structural stop loss, 0.4%-0.6% scalp target, risk-reward ratio, and recommended sizing.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-030"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-32.1",
+          "title": "Calculate entry_price, stop_loss, target, risk_reward, action, and sizing in _fetch_single_quote",
+          "done": true
+        },
+        {
+          "id": "subtask-32.2",
+          "title": "Calibrate equities to 1 share minimal sizing and Forex to micro units with pip targets",
+          "done": true
+        },
+        {
+          "id": "subtask-32.3",
+          "title": "Return full trade decision parameters in GET /api/market/watchlist",
+          "done": true
+        },
+        {
+          "id": "subtask-32.4",
+          "title": "Add pytest tests in tests/test_trading_system.py verifying multi-asset decision payload",
+          "done": true
+        },
+        {
+          "id": "subtask-32.5",
+          "title": "Verify full test suite passes with 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-033",
+      "title": "Frontend Multi-Asset Trade Decision Cards & 1-Click Multi-Trade Execution",
+      "description": "Enhance MultiAssetWatchlist with actionable trade decision cards for all 6 assets simultaneously (Action, SL, Target, R:R) and direct 1-click '\u26a1 Place Order' button on each card plus comparative decision matrix.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-032"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-33.1",
+          "title": "Update WatchlistQuote type with stop_loss, target, action, risk_reward, quantity",
+          "done": true
+        },
+        {
+          "id": "subtask-33.2",
+          "title": "Redesign MultiAssetWatchlist cards with explicit decision headline, SL, Target, and 1-click Place Order button",
+          "done": true
+        },
+        {
+          "id": "subtask-33.3",
+          "title": "Add comparative Multi-Asset Decision Center board view showing all 6 setups side-by-side",
+          "done": true
+        },
+        {
+          "id": "subtask-33.4",
+          "title": "Wire onTradeSymbol in App.tsx to execute trades directly from any asset card into Open Positions",
+          "done": true
+        },
+        {
+          "id": "subtask-33.5",
+          "title": "Verify frontend production build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-034",
+      "title": "Backend Strategy Authenticity & Risk-Reward Guaranteed Brackets",
+      "description": "Eliminate false signals in _fetch_single_quote, require genuine quantitative strategy triggers for BUY/SELL, guarantee target yields R:R >= 1.05 over stop-loss, and enforce pre-flight risk engine validation before recommending trades.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-032"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-34.1",
+          "title": "Remove loose trend fallback in _fetch_single_quote; strictly require verified strategy triggers for BUY/SELL",
+          "done": true
+        },
+        {
+          "id": "subtask-34.2",
+          "title": "Calibrate target formula so target reward is strictly >= 1.05x structural risk, guaranteeing R:R >= 1.0",
+          "done": true
+        },
+        {
+          "id": "subtask-34.3",
+          "title": "Add pre-flight check in _fetch_single_quote: if R:R < 0.8, downgrade action to WAIT",
+          "done": true
+        },
+        {
+          "id": "subtask-34.4",
+          "title": "Add pytest tests in tests/test_trading_system.py asserting R:R >= 0.8 and strategy authenticity",
+          "done": true
+        },
+        {
+          "id": "subtask-34.5",
+          "title": "Verify full test suite passes with 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-035",
+      "title": "Frontend SignalCard Synchronization, False Signal Elimination & Quick Scalp Brackets",
+      "description": "Synchronize SignalCard and MultiAssetWatchlist state, show clear Awaiting Setup status for consolidating assets, and calibrate Quick Scalp 1-click orders with guaranteed R:R >= 1.2 to eliminate risk engine rejections.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-034"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-35.1",
+          "title": "In MultiAssetWatchlist.tsx, display Awaiting Setup for WAIT assets and only highlight verified BUY/SELL setups",
+          "done": true
+        },
+        {
+          "id": "subtask-35.2",
+          "title": "In App.tsx handleTradeFromWatchlist, ensure orders use calibrated R:R >= 1.2 brackets (-0.5% SL, +0.6% Target)",
+          "done": true
+        },
+        {
+          "id": "subtask-35.3",
+          "title": "Synchronize activeSignal with selected symbol watchlist quote in App.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-35.4",
+          "title": "In SignalCard.tsx, display informative Awaiting Strategy Setup state explaining technical conditions",
+          "done": true
+        },
+        {
+          "id": "subtask-35.5",
+          "title": "Verify frontend production build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-036",
+      "title": "Backend Zerodha Kite Connect & Enctoken Zero-Delay Live Market Adapter",
+      "description": "Implement Zerodha Kite Connect and Enctoken real-time session adapter, connect endpoints (POST /api/zerodha/connect, GET /api/zerodha/status, POST /api/zerodha/disconnect), and feed 0-delay NSE ticks into live market service and WebSocket stream.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-034"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-36.1",
+          "title": "Build KiteLiveClient supporting both Official API Key+Access Token and Web Enctoken session in backend/integrations/zerodha/",
+          "done": true
+        },
+        {
+          "id": "subtask-36.2",
+          "title": "Mount /api/zerodha/connect, /api/zerodha/status, and /api/zerodha/disconnect endpoints",
+          "done": true
+        },
+        {
+          "id": "subtask-36.3",
+          "title": "Integrate Zerodha zero-delay live quotes into live_market_service.py for watchlist and candles",
+          "done": true
+        },
+        {
+          "id": "subtask-36.4",
+          "title": "Add unit tests in tests/test_trading_system.py verifying Zerodha connection lifecycle and quote ingestion",
+          "done": true
+        },
+        {
+          "id": "subtask-36.5",
+          "title": "Verify full test suite passes with 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-037",
+      "title": "Frontend Zerodha Kite Connection Modal & Real-Time 0-Delay Status UI",
+      "description": "Build ZerodhaConnectModal component with Enctoken and API Key tabs, step-by-step extraction guide, header connect button, and glowing 0-DELAY live feed badge.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-036"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-37.1",
+          "title": "Add Zerodha API methods in frontend/src/services/api.ts (connectZerodha, getZerodhaStatus, disconnectZerodha)",
+          "done": true
+        },
+        {
+          "id": "subtask-37.2",
+          "title": "Build ZerodhaConnectModal.tsx with tabs for Enctoken (Free) and Developer API Key with inline guides",
+          "done": true
+        },
+        {
+          "id": "subtask-37.3",
+          "title": "Add Connect Zerodha button and glowing 0-DELAY status badge in header toolbar",
+          "done": true
+        },
+        {
+          "id": "subtask-37.4",
+          "title": "Handle live connection status, persistence, and instant disconnect",
+          "done": true
+        },
+        {
+          "id": "subtask-37.5",
+          "title": "Verify frontend production build passes with 0 errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-038",
+      "title": "Backend High-Win-Rate Intraday Scanner Engine & Confluence API",
+      "description": "Build high-win-rate scanner algorithms: Open=High/Open=Low (OHL) institutional momentum, Volume Surge (>=2.0x SMA20), Central Pivot Range (Narrow CPR <=0.25%), and Day High/Low breakout detection with unified GET /api/market/scanners endpoint and enriched watchlist quotes.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [],
+      "subtasks": [
+        {
+          "id": "subtask-38.1",
+          "title": "Create backend/data/scanner_engine.py with OHL, Volume Surge, CPR (Pivot, BC, TC), and Day High/Low Breakout detection algorithms",
+          "done": true
+        },
+        {
+          "id": "subtask-38.2",
+          "title": "Integrate scanner engine into LiveMarketService quote builder and add scanner tags & confluence scoring",
+          "done": true
+        },
+        {
+          "id": "subtask-38.3",
+          "title": "Add GET /api/market/scanners endpoint in backend/api/routes/market.py returning categorized institutional intraday setups",
+          "done": true
+        },
+        {
+          "id": "subtask-38.4",
+          "title": "Write comprehensive unit test suite in tests/test_trading_system.py verifying all scanner algorithms",
+          "done": true
+        },
+        {
+          "id": "subtask-38.5",
+          "title": "Run test suite and verify 100% pass rate",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-039",
+      "title": "Frontend High-Win-Rate Scanner Cockpit, Filter Tabs & Real-Time Confluence Badges",
+      "description": "Upgrade MultiAssetWatchlist with scanner filter pills (All, High Confluence, Open=Low, Open=High, Volume Surge, Narrow CPR, Day Breakout), render dynamic institutional badges and CPR metrics in cards and table, and wire getScanners API.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-038"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-39.1",
+          "title": "Update frontend/src/types/index.ts to include scanner fields (scanner_tags, ohl, volume_surge, cpr, day_breakout, confluence_score)",
+          "done": true
+        },
+        {
+          "id": "subtask-39.2",
+          "title": "Add getScanners API client method in frontend/src/services/api.ts",
+          "done": true
+        },
+        {
+          "id": "subtask-39.3",
+          "title": "Add scanner category filter pills in MultiAssetWatchlist.tsx",
+          "done": true
+        },
+        {
+          "id": "subtask-39.4",
+          "title": "Render glowing scanner badges, confluence counter, and CPR metrics in Cards view and Table view",
+          "done": true
+        },
+        {
+          "id": "subtask-39.5",
+          "title": "Verify frontend production build compiles with 0 TypeScript/Vite errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-040",
+      "title": "Backend Trade Autopsy Diagnostic Engine & Adaptive Failure Suppression",
+      "description": "Build automated post-mortem forensic audit engine that analyzes failed/losing trades, classifies root causes (Chased Entry, Low Volume Trap, Counter-Tide Divergence, Tight Stop Shakeout, Lunch Chop), persists autopsies in SQLite, and applies adaptive suppression to protect subsequent orders.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [],
+      "subtasks": [
+        {
+          "id": "subtask-40.1",
+          "title": "Create TradeAutopsy model in backend/database/models.py and run SQLite migration",
+          "done": true
+        },
+        {
+          "id": "subtask-40.2",
+          "title": "Build backend/trading/trade_autopsy.py with 5-point root-cause diagnosis and adaptive suppression manager",
+          "done": true
+        },
+        {
+          "id": "subtask-40.3",
+          "title": "Hook autopsy trigger into paper_broker order close/auto-exit and integrate suppression filter into RiskManager",
+          "done": true
+        },
+        {
+          "id": "subtask-40.4",
+          "title": "Add GET /api/trades/autopsies and GET /api/trades/{id}/autopsy endpoints in backend/api/routes/trading.py",
+          "done": true
+        },
+        {
+          "id": "subtask-40.5",
+          "title": "Write unit tests in tests/test_trading_system.py verifying failure diagnosis, suppression filter, and API",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-041",
+      "title": "Frontend Trade Autopsy Modal, Loss Diagnostic Badges & Adaptive Shield Status UI",
+      "description": "Build TradeAutopsyModal component showing root-cause analysis, lessons learned, and preventative rules; display autopsy badges on losing trades in Trade History, and add Adaptive Defense status pill in header toolbar.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-040"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-41.1",
+          "title": "Add TradeAutopsy interface in frontend/src/types/index.ts and api methods in frontend/src/services/api.ts",
+          "done": true
+        },
+        {
+          "id": "subtask-41.2",
+          "title": "Build TradeAutopsyModal.tsx with root-cause breakdown, chart metrics, and preventative guidance",
+          "done": true
+        },
+        {
+          "id": "subtask-41.3",
+          "title": "Render clickable autopsy badges on losing trades in PositionTable/Trade History",
+          "done": true
+        },
+        {
+          "id": "subtask-41.4",
+          "title": "Verify frontend production build compiles cleanly with 0 TypeScript/Vite errors",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-042",
+      "title": "Backend 24/5 Forex & Commodities Live Streaming Engine, Volatility Expansion Proxy, 24/5 Market Status & Precision Formatting",
+      "description": "Expand backend live market service for 10 Forex/Commodity/Crypto tickers, synthesize OTC proxy volume from range volatility to unlock VWAP and breakout strategies, update 24/5 market hours calculation, and enforce 4-decimal currency precision.",
+      "status": "done",
+      "assignee": "backend-engineer",
+      "priority": "urgent",
+      "deps": [],
+      "subtasks": [
+        {
+          "id": "subtask-42.1",
+          "title": "Expand SYMBOL_MAP, FOREX_SYMBOLS, and SYMBOL_NAMES in backend/data/live_market_service.py with full 10 Forex, Commodity, and Crypto pairs",
+          "done": true
+        },
+        {
+          "id": "subtask-42.2",
+          "title": "Implement OTC tick volume proxy computation in _fetch_and_prepare using normalized range volatility when volume is zero",
+          "done": true
+        },
+        {
+          "id": "subtask-42.3",
+          "title": "Adapt BreakoutStrategy and scanner engine for Forex: allow price body and ATR range expansion without failing on zero volume",
+          "done": true
+        },
+        {
+          "id": "subtask-42.4",
+          "title": "Implement get_market_trading_status(symbol) supporting 24/5 Forex market hours and 24/7 Crypto",
+          "done": true
+        },
+        {
+          "id": "subtask-42.5",
+          "title": "Write unit tests in tests/test_trading_system.py verifying Forex live quotes, volatility proxy, 24/5 market hours, and precision formatting",
+          "done": true
+        }
+      ]
+    },
+    {
+      "id": "task-043",
+      "title": "Frontend Multi-Asset Watchlist Forex Suite, Live 24/5 Status Banner, Cross-Symbol Chart Isolation & Multi-Currency Formatting",
+      "description": "Upgrade frontend with full 10 Forex/Commodity pairs in watchlist, multi-currency formatting ($/€/£/¥/₹), 4-decimal precision, cross-symbol WebSocket chart isolation, and dynamic 24/5 / 24/7 market hours banner.",
+      "status": "done",
+      "assignee": "frontend-engineer",
+      "priority": "urgent",
+      "deps": [
+        "task-042"
+      ],
+      "subtasks": [
+        {
+          "id": "subtask-43.1",
+          "title": "Expand MultiAssetWatchlist.tsx DEFAULT_SYMBOLS and FALLBACK_QUOTES to include all 10 Forex/Commodity/Crypto pairs",
+          "done": true
+        },
+        {
+          "id": "subtask-43.2",
+          "title": "Implement multi-currency symbol and precision formatting ($/€/£/¥/₹, 4-decimal precision for FX, 2-decimal for Equities/Gold/Crypto)",
+          "done": true
+        },
+        {
+          "id": "subtask-43.3",
+          "title": "Fix WebSocket CANDLE_UPDATE tick routing in App.tsx with symbol isolation check to prevent cross-symbol candle contamination",
+          "done": true
+        },
+        {
+          "id": "subtask-43.4",
+          "title": "Dynamic Market Hours Banner in App.tsx displaying FOREX 24/5 LIVE or 24/7 CRYPTO LIVE when a Forex/Crypto asset is active",
+          "done": true
+        },
+        {
+          "id": "subtask-43.5",
+          "title": "Ensure handleSelectSymbol switches live feed polling to the selected symbol seamlessly and verify frontend production build compiles cleanly",
+          "done": true
+        }
+      ]
+    }
+  ]
+}
