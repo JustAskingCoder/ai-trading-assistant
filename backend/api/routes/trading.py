@@ -114,23 +114,44 @@ def get_positions(db: Session = Depends(get_db)):
             pass
 
     positions = db.query(Position).all()
-    return [{
-        "id": p.id,
-        "symbol": p.symbol,
-        "side": p.side,
-        "quantity": p.quantity,
-        "average_price": p.average_price,
-        "current_price": p.current_price,
-        "stop_loss": p.stop_loss,
-        "target": p.target,
-        "entry_time": (p.entry_time.isoformat() + "Z") if getattr(p, "entry_time", None) else None,
-        "window_minutes": 10 if p.symbol.startswith("TEST") else (getattr(p, "window_minutes", 30) or 30),
-        "unrealized_pnl": round(p.unrealized_pnl, 2),
-        "pnl_percentage": round(
-            ((p.current_price - p.average_price) if p.side == "BUY" else (p.average_price - p.current_price))
-            / p.average_price * 100.0, 2
-        ) if p.average_price > 0 else 0.0
-    } for p in positions]
+    results = []
+    for p in positions:
+        health = {
+            "health_status": "HEALTHY",
+            "trend_shift": False,
+            "recommendation": "HOLD",
+            "invalidation_reason": None,
+            "opposing_patterns": []
+        }
+        if not p.symbol.startswith("TEST"):
+            try:
+                health = live_service.evaluate_position_health(p.symbol, p.side, p.average_price, p.current_price)
+            except Exception:
+                pass
+
+        results.append({
+            "id": p.id,
+            "symbol": p.symbol,
+            "side": p.side,
+            "quantity": p.quantity,
+            "average_price": p.average_price,
+            "current_price": p.current_price,
+            "stop_loss": p.stop_loss,
+            "target": p.target,
+            "entry_time": (p.entry_time.isoformat() + "Z") if getattr(p, "entry_time", None) else None,
+            "window_minutes": 10 if p.symbol.startswith("TEST") else (getattr(p, "window_minutes", 30) or 30),
+            "unrealized_pnl": round(p.unrealized_pnl, 2),
+            "pnl_percentage": round(
+                ((p.current_price - p.average_price) if p.side == "BUY" else (p.average_price - p.current_price))
+                / p.average_price * 100.0, 2
+            ) if p.average_price > 0 else 0.0,
+            "health_status": health.get("health_status", "HEALTHY"),
+            "trend_shift": health.get("trend_shift", False),
+            "recommendation": health.get("recommendation", "HOLD"),
+            "invalidation_reason": health.get("invalidation_reason"),
+            "opposing_patterns": health.get("opposing_patterns", [])
+        })
+    return results
 
 
 @router.post("/positions/{position_id}/close")

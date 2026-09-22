@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { PositionData, TradeData } from '../../types';
-import { TrendingUp, TrendingDown, Layers, Zap } from 'lucide-react';
+import { TrendingUp, TrendingDown, Layers, Zap, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 interface Props {
   positions: PositionData[];
@@ -35,6 +35,8 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
     return { text, style: 'bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse font-black' };
   };
 
+  const hasInvalidatedPositions = positions.some(p => p.health_status === 'RELEASE_STOCK');
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Active Positions */}
@@ -53,6 +55,18 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
           </button>
         </div>
 
+        {hasInvalidatedPositions && (
+          <div className="mt-3 rounded-lg bg-rose-950/60 border border-rose-500/50 p-2.5 flex items-start gap-2.5 text-xs text-rose-200 animate-pulse">
+            <AlertTriangle className="h-4 w-4 text-rose-400 shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <div className="font-bold text-rose-300">🚨 Trend Shift Invalidation Detected</div>
+              <div className="text-[11px] text-rose-200/90 mt-0.5">
+                Market shifted against open position(s) with opposing patterns or broken VWAP/EMA. Release stock recommended to protect capital!
+              </div>
+            </div>
+          </div>
+        )}
+
         {positions.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-500">No open positions in portfolio.</div>
         ) : (
@@ -68,6 +82,7 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                   <th className="py-2">Stop Loss</th>
                   <th className="py-2">Target</th>
                   <th className="py-2">Window</th>
+                  <th className="py-2">Health / Pattern</th>
                   <th className="py-2 text-right">Unrealized P&L</th>
                   {onClosePosition && <th className="py-2 text-right">Action</th>}
                 </tr>
@@ -79,8 +94,10 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                   const isForex = p.symbol.includes('USD') || p.symbol.includes('EUR') || p.symbol.includes('GBP');
                   const prefix = isForex ? (p.symbol.includes('INR') ? '₹' : '') : '₹';
                   const dec = isForex ? 4 : 2;
+                  const isRelease = p.health_status === 'RELEASE_STOCK';
+                  const isWarning = p.health_status === 'WARNING';
                   return (
-                    <tr key={p.id} className="hover:bg-dark-700/30">
+                    <tr key={p.id} className={`hover:bg-dark-700/30 ${isRelease ? 'bg-rose-950/20' : ''}`}>
                       <td className="py-2.5 font-bold text-white">{p.symbol}</td>
                       <td className="py-2.5">
                         <span
@@ -117,22 +134,60 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                           {windowStatus.text}
                         </span>
                       </td>
+                      <td className="py-2.5">
+                        {isRelease ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-black text-rose-300 border border-rose-500/40 animate-pulse"
+                            title={p.invalidation_reason || 'Opposing pattern or trend shift detected'}
+                          >
+                            🚨 RELEASE STOCK
+                          </span>
+                        ) : isWarning ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30"
+                            title={p.invalidation_reason || 'Trend momentum weakening'}
+                          >
+                            ⚠️ Weakening
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-300 border border-emerald-500/30"
+                            title="Pattern & trend intact"
+                          >
+                            ✓ Intact
+                          </span>
+                        )}
+                      </td>
                       <td className={`py-2.5 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>
                         {isProfit ? '+' : ''}₹{(p.unrealized_pnl ?? 0).toFixed(2)} ({isProfit ? '+' : ''}{p.pnl_percentage ?? 0}%)
                       </td>
                       {onClosePosition && (
                         <td className="py-2.5 text-right">
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Close position for ${p.symbol} (${p.quantity} qty)?`)) {
-                                onClosePosition(p.id);
-                              }
-                            }}
-                            className="rounded bg-red-500/20 px-2 py-0.5 text-[11px] font-bold text-red-400 hover:bg-red-500/30 hover:text-red-300 transition-colors border border-red-500/30"
-                            title={`Close ${p.symbol} position`}
-                          >
-                            Close
-                          </button>
+                          {isRelease ? (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`🚨 TREND SHIFT DETECTED!\n\nReason: ${p.invalidation_reason || 'Pattern invalidation / opposing momentum'}\n\nRelease ${p.symbol} (${p.quantity} qty) now to protect capital?`)) {
+                                  onClosePosition(p.id);
+                                }
+                              }}
+                              className="rounded bg-rose-600 hover:bg-rose-500 px-2 py-0.5 text-[11px] font-black text-white hover:text-rose-100 shadow-md shadow-rose-950/50 border border-rose-400 animate-pulse transition-transform active:scale-95"
+                              title={`🚨 RELEASE STOCK: ${p.invalidation_reason || 'Trend Shift'}`}
+                            >
+                              🚨 Release Stock
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Close position for ${p.symbol} (${p.quantity} qty)?`)) {
+                                  onClosePosition(p.id);
+                                }
+                              }}
+                              className="rounded bg-red-500/20 px-2 py-0.5 text-[11px] font-bold text-red-400 hover:bg-red-500/30 hover:text-red-300 transition-colors border border-red-500/30"
+                              title={`Close ${p.symbol} position`}
+                            >
+                              Close
+                            </button>
+                          )}
                         </td>
                       )}
                     </tr>

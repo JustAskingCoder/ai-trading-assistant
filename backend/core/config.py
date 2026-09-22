@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     MIN_RISK_REWARD: float = 0.8
     MIN_AI_CONFIDENCE: float = 0.75
     DEFAULT_TIMEFRAME: str = "5m"
+    AUTO_RELEASE_ON_TREND_SHIFT: bool = True
 
     # AI Provider Settings
     DEFAULT_AI_PROVIDER: str = "openai"

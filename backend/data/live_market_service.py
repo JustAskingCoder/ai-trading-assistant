@@ -714,7 +714,18 @@ class LiveMarketService:
                         candle_dt = pd.to_datetime(raw_ts).to_pydatetime() if raw_ts else None
 
                         # Update paper positions
-                        triggers = paper_broker.update_market_price(self._symbol, close_p)
+                        sym_inv_reason = None
+                        try:
+                            with SessionLocal() as db_curr:
+                                curr_pos = db_curr.query(Position).filter(Position.symbol == self._symbol).first()
+                                if curr_pos and not curr_pos.symbol.startswith("TEST"):
+                                    h = self.evaluate_position_health(self._symbol, curr_pos.side, curr_pos.average_price, close_p, df_with_indicators=ind_df)
+                                    if h.get("health_status") == "RELEASE_STOCK" and h.get("trend_shift"):
+                                        sym_inv_reason = h.get("invalidation_reason") or "Pattern & Trend Shift Invalidation"
+                        except Exception as che:
+                            logger.debug("Error checking health for %s: %s", self._symbol, che)
+
+                        triggers = paper_broker.update_market_price(self._symbol, close_p, invalidation_reason=sym_inv_reason)
                         try:
                             with SessionLocal() as db_pos:
                                 other_positions = db_pos.query(Position).filter(Position.symbol != self._symbol).all()
@@ -723,7 +734,14 @@ class LiveMarketService:
                                         continue
                                     cached = self._quote_cache.get(opos.symbol.upper())
                                     if cached and cached[1] and cached[1].get("price"):
-                                        other_trigs = paper_broker.update_market_price(opos.symbol, float(cached[1]["price"]), db=db_pos)
+                                        opos_inv = None
+                                        try:
+                                            oh = self.evaluate_position_health(opos.symbol, opos.side, opos.average_price, float(cached[1]["price"]))
+                                            if oh.get("health_status") == "RELEASE_STOCK" and oh.get("trend_shift"):
+                                                opos_inv = oh.get("invalidation_reason") or "Pattern & Trend Shift Invalidation"
+                                        except Exception:
+                                            pass
+                                        other_trigs = paper_broker.update_market_price(opos.symbol, float(cached[1]["price"]), db=db_pos, invalidation_reason=opos_inv)
                                         if other_trigs:
                                             triggers.extend(other_trigs)
                         except Exception as loop_e:
@@ -907,6 +925,134 @@ class LiveMarketService:
             "rationale": rationale
         }
 
+    def evaluate_position_health(
+        self,
+        symbol: str,
+        side: str,
+        average_price: float,
+        current_price: float,
+        candles: Optional[List[Dict[str, Any]]] = None,
+        df_with_indicators: Optional[pd.DataFrame] = None
+    ) -> Dict[str, Any]:
+        """
+        Real-time Trend Shift and Pattern Invalidation Guardian.
+        Evaluates whether an active position's underlying trend or pattern has broken down.
+        Returns health status ('HEALTHY', 'WARNING', 'RELEASE_STOCK'), recommendation, invalidation reason,
+        and list of opposing patterns.
+        """
+        clean_sym = symbol.strip().upper().replace("/", "").replace(" ", "").replace("_", "")
+        if clean_sym.startswith("TEST") or average_price <= 0:
+            return {
+                "health_status": "HEALTHY",
+                "trend_shift": False,
+                "recommendation": "HOLD",
+                "invalidation_reason": None,
+                "opposing_patterns": []
+            }
+
+        # Fetch latest candles and indicator dataframe if not provided
+        if df_with_indicators is None or df_with_indicators.empty:
+            records, ind_df = self._fetch_and_prepare(clean_sym, interval=self._interval, limit=60)
+        else:
+            ind_df = df_with_indicators
+
+        if ind_df is None or len(ind_df) < 5:
+            return {
+                "health_status": "HEALTHY",
+                "trend_shift": False,
+                "recommendation": "HOLD",
+                "invalidation_reason": None,
+                "opposing_patterns": []
+            }
+
+        last_candle = ind_df.iloc[-1]
+        close_p = float(current_price) if current_price > 0 else float(last_candle["close"])
+        ema20 = float(last_candle["ema20"]) if pd.notnull(last_candle.get("ema20")) else close_p
+        ema50 = float(last_candle["ema50"]) if pd.notnull(last_candle.get("ema50")) else close_p
+        vwap = float(last_candle["vwap"]) if pd.notnull(last_candle.get("vwap")) else close_p
+        rsi = float(last_candle["rsi"]) if pd.notnull(last_candle.get("rsi")) else 50.0
+
+        detected_patterns = detect_all_patterns(ind_df, -1) if len(ind_df) >= 20 else []
+
+        side_upper = side.upper()
+        pnl_pct = ((close_p - average_price) / average_price * 100.0) if side_upper == "BUY" else ((average_price - close_p) / average_price * 100.0)
+
+        # Filter opposing patterns
+        if side_upper == "BUY":
+            opposing_patterns = [p["pattern"] for p in detected_patterns if p.get("direction") == "SELL"]
+            severe_set = {"bearish_engulfing", "shooting_star", "support_breakdown", "vwap_cross_below", "ema_death_crossover"}
+            severe_patterns = [p for p in opposing_patterns if p in severe_set]
+        else:
+            opposing_patterns = [p["pattern"] for p in detected_patterns if p.get("direction") == "BUY"]
+            severe_set = {"bullish_engulfing", "hammer", "resistance_breakout", "vwap_cross_above", "ema_golden_crossover"}
+            severe_patterns = [p for p in opposing_patterns if p in severe_set]
+
+        # Evaluate Trend Invalidation
+        health_status = "HEALTHY"
+        trend_shift = False
+        recommendation = "HOLD — Setup Intact"
+        invalidation_reason = None
+
+        if side_upper == "BUY":
+            # Check Long Invalidation
+            is_sub_vwap = (vwap > 0 and close_p < vwap)
+            is_bearish_ema = (ema20 < ema50)
+            is_severe_break = is_sub_vwap and is_bearish_ema
+
+            if severe_patterns and pnl_pct < 0:
+                health_status = "RELEASE_STOCK"
+                trend_shift = True
+                invalidation_reason = f"Opposing Pattern: {', '.join(severe_patterns)}"
+                recommendation = "RELEASE STOCK — Reversal Pattern Against Position"
+            elif is_severe_break and pnl_pct < -0.25:
+                health_status = "RELEASE_STOCK"
+                trend_shift = True
+                invalidation_reason = "Price lost VWAP with Bearish EMA20/50 Cross"
+                recommendation = "RELEASE STOCK — Bearish Trend Shift Confirmed"
+            elif opposing_patterns and pnl_pct < -0.20:
+                health_status = "RELEASE_STOCK"
+                trend_shift = True
+                invalidation_reason = f"Opposing Signals: {', '.join(opposing_patterns)}"
+                recommendation = "RELEASE STOCK — Momentum Reversal"
+            elif is_sub_vwap or is_bearish_ema or rsi < 42 or pnl_pct < -0.5:
+                health_status = "WARNING"
+                invalidation_reason = "Momentum softening below key trendline / VWAP"
+                recommendation = "CAUTION — Trend Weakening"
+        else:
+            # Check Short Invalidation
+            is_above_vwap = (vwap > 0 and close_p > vwap)
+            is_bullish_ema = (ema20 > ema50)
+            is_severe_break = is_above_vwap and is_bullish_ema
+
+            if severe_patterns and pnl_pct < 0:
+                health_status = "RELEASE_STOCK"
+                trend_shift = True
+                invalidation_reason = f"Opposing Pattern: {', '.join(severe_patterns)}"
+                recommendation = "RELEASE STOCK — Bullish Reversal Pattern Formed"
+            elif is_severe_break and pnl_pct < -0.25:
+                health_status = "RELEASE_STOCK"
+                trend_shift = True
+                invalidation_reason = "Price rallied above VWAP with Bullish EMA20/50 Cross"
+                recommendation = "RELEASE STOCK — Bullish Trend Shift Confirmed"
+            elif opposing_patterns and pnl_pct < -0.20:
+                health_status = "RELEASE_STOCK"
+                trend_shift = True
+                invalidation_reason = f"Opposing Signals: {', '.join(opposing_patterns)}"
+                recommendation = "RELEASE STOCK — Momentum Reversal"
+            elif is_above_vwap or is_bullish_ema or rsi > 58 or pnl_pct < -0.5:
+                health_status = "WARNING"
+                invalidation_reason = "Counter-trend buying pressure above key level"
+                recommendation = "CAUTION — Counter-Trend Bounce"
+
+        return {
+            "health_status": health_status,
+            "trend_shift": trend_shift,
+            "recommendation": recommendation,
+            "invalidation_reason": invalidation_reason,
+            "opposing_patterns": opposing_patterns
+        }
+
 
 live_service = LiveMarketService()
 live_market_service = live_service
+

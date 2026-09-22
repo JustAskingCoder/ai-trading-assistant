@@ -66,6 +66,11 @@ export interface PositionData {
   pnl_percentage: number;
   entry_time?: string | null;
   window_minutes?: number;
+  health_status?: 'HEALTHY' | 'WARNING' | 'RELEASE_STOCK';
+  trend_shift?: boolean;
+  recommendation?: string;
+  invalidation_reason?: string | null;
+  opposing_patterns?: string[];
 }
 
 export interface TradeData {

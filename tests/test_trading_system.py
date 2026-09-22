@@ -1791,3 +1791,140 @@ def test_short_position_pnl_and_cover():
         db.query(Trade).filter(Trade.symbol == sym).delete()
         db.commit()
         db.close()
+
+
+def test_trend_shift_position_health_evaluation(sample_df):
+    """Verify evaluate_position_health detects trend shift and opposing pattern invalidation."""
+    from backend.data.live_market_service import live_service
+    from backend.indicators.engine import calculate_indicators
+
+    ind_df = calculate_indicators(sample_df)
+
+    # 1. Healthy BUY position when price is above VWAP with bullish EMA
+    health = live_service.evaluate_position_health(
+        symbol="RELIANCE",
+        side="BUY",
+        average_price=2450.0,
+        current_price=2550.0,
+        df_with_indicators=ind_df
+    )
+    assert health["health_status"] in ["HEALTHY", "WARNING"]
+    assert "RELEASE" not in health["health_status"]
+
+    # 2. Invalidation when a severe opposing pattern or sub-VWAP occurs with negative PnL
+    # Inject an opposing Bearish Engulfing on the last candle
+    df_bear = ind_df.copy()
+    # Prev candle: green
+    df_bear.iloc[-2, df_bear.columns.get_loc("open")] = 2500.0
+    df_bear.iloc[-2, df_bear.columns.get_loc("close")] = 2520.0
+    # Last candle: huge red engulfing
+    df_bear.iloc[-1, df_bear.columns.get_loc("open")] = 2530.0
+    df_bear.iloc[-1, df_bear.columns.get_loc("close")] = 2480.0
+    df_bear.iloc[-1, df_bear.columns.get_loc("high")] = 2535.0
+    df_bear.iloc[-1, df_bear.columns.get_loc("low")] = 2475.0
+
+    health_bear = live_service.evaluate_position_health(
+        symbol="RELIANCE",
+        side="BUY",
+        average_price=2520.0,
+        current_price=2480.0,
+        df_with_indicators=df_bear
+    )
+    assert health_bear["health_status"] == "RELEASE_STOCK"
+    assert health_bear["trend_shift"] is True
+    assert "bearish_engulfing" in str(health_bear["invalidation_reason"]) or "RELEASE STOCK" in health_bear["recommendation"]
+
+    # 3. Test symbol bypasses live evaluation
+    health_test = live_service.evaluate_position_health(
+        symbol="TEST_RELIANCE",
+        side="BUY",
+        average_price=2500.0,
+        current_price=2400.0,
+        df_with_indicators=ind_df
+    )
+    assert health_test["health_status"] == "HEALTHY"
+    assert health_test["trend_shift"] is False
+
+
+def test_auto_release_on_trend_shift_invalidation():
+    """Verify PaperBroker auto-releases positions when trend shift invalidation occurs while in negative PnL."""
+    from backend.paper.paper_broker import paper_broker
+    from backend.database.session import SessionLocal
+    from backend.database.models import Position, Trade
+    from backend.core.config import settings
+
+    sym = "TEST_AUTO_RELEASE"
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        db.query(Trade).filter(Trade.symbol == sym).delete()
+        db.commit()
+
+        # Open BUY position @ 2500, SL @ 2450
+        paper_broker.place_order(sym, "BUY", 2, 2500.0, stop_loss=2450.0, target=2600.0, db=db)
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos is not None
+
+        # Price drops slightly to 2485 (unrealized loss -30, but SL 2450 NOT hit yet)
+        # Without invalidation_reason, position remains open
+        triggers_normal = paper_broker.update_market_price(sym, 2485.0, db=db)
+        assert len(triggers_normal) == 0
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos is not None
+
+        # Now trend shift invalidation occurs (e.g. Bearish Engulfing / Lost VWAP)
+        inv_reason = "Opposing Pattern: bearish_engulfing"
+        triggers_release = paper_broker.update_market_price(sym, 2485.0, db=db, invalidation_reason=inv_reason)
+        assert len(triggers_release) == 1
+        assert triggers_release[0]["type"] == "AUTO_EXIT"
+        assert "Trend Shift" in triggers_release[0]["reason"]
+        assert triggers_release[0]["pnl"] == -30.0  # Cut early at -30 instead of full SL loss -100
+
+        # Verify position is closed
+        pos_after = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos_after is None
+
+        # Verify trade recorded with Strategy noting Trend Shift Auto-Exit
+        last_trade = db.query(Trade).filter(Trade.symbol == sym).order_by(Trade.id.desc()).first()
+        assert last_trade is not None
+        assert "Trend Shift" in last_trade.strategy
+        assert last_trade.exit_price == 2485.0
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.query(Trade).filter(Trade.symbol == sym).delete()
+        db.commit()
+        db.close()
+
+
+def test_positions_api_returns_health_metrics():
+    """Verify GET /api/positions enriches open positions with health_status, trend_shift, and recommendation."""
+    from backend.paper.paper_broker import paper_broker
+    from backend.database.session import SessionLocal
+    from backend.database.models import Position, Trade
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    client = TestClient(app)
+    sym = "TEST_API_HEALTH"
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        paper_broker.place_order(sym, "BUY", 1, 1000.0, stop_loss=980.0, target=1040.0, db=db)
+
+        resp = client.get("/api/positions")
+        assert resp.status_code == 200
+        data = resp.json()
+        matching = [p for p in data if p["symbol"] == sym]
+        assert len(matching) == 1
+        pos = matching[0]
+
+        # Verify health fields are present in API payload
+        assert "health_status" in pos
+        assert "trend_shift" in pos
+        assert "recommendation" in pos
+        assert "invalidation_reason" in pos
+        assert "opposing_patterns" in pos
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+

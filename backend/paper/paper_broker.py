@@ -315,10 +315,11 @@ class PaperBroker:
         symbol: str,
         current_price: float,
         candle_time: Optional[datetime] = None,
-        db: Optional[Session] = None
+        db: Optional[Session] = None,
+        invalidation_reason: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
-        Update unrealized P&L and check if any open position hit its stop-loss, target, or 10-minute window limit.
+        Update unrealized P&L and check if any open position hit its stop-loss, target, trend shift invalidation, or holding window limit.
         Returns list of any auto-triggered exits.
         """
         close_session = False
@@ -359,6 +360,15 @@ class PaperBroker:
                         reason = 'Stop Loss Hit'
                     elif pos.target is not None and current_price <= pos.target:
                         reason = 'Target Hit'
+
+                # Dynamic Trend Shift & Pattern Invalidation Early Guard
+                if not reason and invalidation_reason and pos.unrealized_pnl < 0:
+                    if getattr(settings, "AUTO_RELEASE_ON_TREND_SHIFT", True):
+                        reason = f"Trend Shift ({invalidation_reason})"
+                        logger.info(
+                            "AUTO-RELEASE TRIGGERED for %s (%s): %s at price ₹%.2f (P&L: ₹%.2f)",
+                            pos.symbol, pos.side, reason, current_price, pos.unrealized_pnl
+                        )
 
                 if pos.entry_time:
                     now_utc = datetime.utcnow()
