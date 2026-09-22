@@ -572,8 +572,29 @@ export default function App() {
     try {
       await api.resetPortfolio();
       await loadPortfolioData();
+      setOrderAlert({
+        type: 'success',
+        message: '🔄 Portfolio reset to ₹10,000 and Win Rate reset to 0.0%.'
+      });
     } catch (e) {
       console.error('Reset portfolio error:', e);
+    }
+  };
+
+  // Win Rate & Trade History Reset
+  const handleResetWinRate = async () => {
+    if (!window.confirm('Reset Win Rate to 0.0% and clear completed trade history?')) {
+      return;
+    }
+    try {
+      await api.resetTrades();
+      await loadPortfolioData();
+      setOrderAlert({
+        type: 'success',
+        message: '🔄 Win Rate reset to 0.0% and trade history cleared.'
+      });
+    } catch (e) {
+      console.error('Reset trades error:', e);
     }
   };
 
@@ -852,7 +873,7 @@ export default function App() {
       )}
 
       {/* Portfolio KPIs */}
-      <PortfolioCard portfolio={portfolio} />
+      <PortfolioCard portfolio={portfolio} onResetWinRate={handleResetWinRate} />
 
       {/* Navigation Tabs */}
       <div className="flex items-center gap-2 border-b border-dark-700 pb-2">

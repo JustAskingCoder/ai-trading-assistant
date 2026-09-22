@@ -48,8 +48,11 @@ def get_portfolio(db: Session = Depends(get_db)):
 
 
 @router.post("/portfolio/reset")
-def reset_portfolio(db: Session = Depends(get_db)):
+def reset_portfolio(clear_trades: bool = True, db: Session = Depends(get_db)):
     portfolio = paper_broker.reset_portfolio(db)
+    if clear_trades:
+        db.query(Trade).delete()
+        db.commit()
     positions_count = db.query(Position).count()
     trades_count = db.query(Trade).count()
     winning_trades = db.query(Trade).filter(Trade.pnl > 0).count()
@@ -70,6 +73,23 @@ def reset_portfolio(db: Session = Depends(get_db)):
         "losing_trades": losing_trades,
         "win_rate": win_rate,
         "open_positions": positions_count
+    }
+
+
+@router.post("/trades/reset")
+def reset_trades(db: Session = Depends(get_db)):
+    deleted_count = db.query(Trade).delete()
+    portfolio = paper_broker.get_portfolio(db)
+    portfolio.realized_pnl = 0.0
+    portfolio.daily_pnl = 0.0
+    db.commit()
+    return {
+        "status": "success",
+        "message": f"Reset {deleted_count} trades. Win rate reset to 0.0%",
+        "total_trades": 0,
+        "winning_trades": 0,
+        "losing_trades": 0,
+        "win_rate": 0.0
     }
 
 
