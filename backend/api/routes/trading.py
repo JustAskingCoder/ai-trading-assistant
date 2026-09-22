@@ -149,6 +149,7 @@ def get_positions(db: Session = Depends(get_db)):
             "trend_shift": health.get("trend_shift", False),
             "recommendation": health.get("recommendation", "HOLD"),
             "invalidation_reason": health.get("invalidation_reason"),
+            "invalidation_confidence": health.get("invalidation_confidence", 0.0),
             "opposing_patterns": health.get("opposing_patterns", [])
         })
     return results

@@ -1923,8 +1923,64 @@ def test_positions_api_returns_health_metrics():
         assert "trend_shift" in pos
         assert "recommendation" in pos
         assert "invalidation_reason" in pos
+        assert "invalidation_confidence" in pos
         assert "opposing_patterns" in pos
     finally:
         paper_broker.reset_portfolio(db)
         db.close()
+
+
+def test_sub_80_percent_confidence_does_not_trigger_release(sample_df):
+    """Verify that when invalidation confidence is below 80% (0.80), RELEASE_STOCK is NOT triggered."""
+    from backend.data.live_market_service import live_service
+    from backend.indicators.engine import calculate_indicators
+
+    ind_df = calculate_indicators(sample_df)
+
+    # Moderate price softening with slight negative PnL (-0.15%), but NO severe pattern and confidence < 0.80
+    health = live_service.evaluate_position_health(
+        symbol="RELIANCE",
+        side="BUY",
+        average_price=2500.0,
+        current_price=2495.0,  # -0.2% minor pullback
+        df_with_indicators=ind_df
+    )
+    # Must NOT trigger RELEASE_STOCK because confidence is below 80%
+    assert health["health_status"] != "RELEASE_STOCK"
+    assert health["trend_shift"] is False
+    assert health["invalidation_confidence"] < 0.80
+
+
+def test_stage_2_trailing_profit_lock():
+    """Verify Stage 2 Trailing Stop locks in +0.4% profit when price reaches +0.8% gain."""
+    from backend.paper.paper_broker import paper_broker
+    from backend.database.session import SessionLocal
+    from backend.database.models import Position, Trade
+
+    sym = "TEST_PROFIT_LOCK"
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        paper_broker.place_order(sym, "BUY", 10, 1000.0, stop_loss=985.0, target=1030.0, db=db)
+
+        # 1. Price rises +0.4% (1004.0) -> Stage 1 Breakeven locked
+        paper_broker.update_market_price(sym, 1004.0, db=db)
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos.stop_loss == 1000.0  # Trailed to breakeven
+
+        # 2. Price rises +0.9% (1009.0) -> Stage 2 Profit Lock triggers
+        paper_broker.update_market_price(sym, 1009.0, db=db)
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos.stop_loss == 1004.0  # Trailed to +0.4% guaranteed profit!
+
+        # 3. Price retraces down to 1004.0 -> Stop Loss triggers in guaranteed profit
+        exits = paper_broker.update_market_price(sym, 1003.5, db=db)
+        assert len(exits) == 1
+        assert exits[0]["type"] == "AUTO_EXIT"
+        assert exits[0]["reason"] == "Stop Loss Hit"
+        assert exits[0]["pnl"] > 0  # Banked as a winning trade!
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
 

@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     MIN_AI_CONFIDENCE: float = 0.75
     DEFAULT_TIMEFRAME: str = "5m"
     AUTO_RELEASE_ON_TREND_SHIFT: bool = True
+    MIN_RELEASE_CONFIDENCE: float = 0.80  # Only suggest or trigger release if >= 80% confident
+    AUTO_EXTEND_WINNERS: bool = True       # Extend timer by +15m with breakeven locked if in profit
 
     # AI Provider Settings
     DEFAULT_AI_PROVIDER: str = "openai"

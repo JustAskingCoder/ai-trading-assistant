@@ -947,6 +947,7 @@ class LiveMarketService:
                 "trend_shift": False,
                 "recommendation": "HOLD",
                 "invalidation_reason": None,
+                "invalidation_confidence": 0.0,
                 "opposing_patterns": []
             }
 
@@ -962,6 +963,7 @@ class LiveMarketService:
                 "trend_shift": False,
                 "recommendation": "HOLD",
                 "invalidation_reason": None,
+                "invalidation_confidence": 0.0,
                 "opposing_patterns": []
             }
 
@@ -987,68 +989,75 @@ class LiveMarketService:
             severe_set = {"bullish_engulfing", "hammer", "resistance_breakout", "vwap_cross_above", "ema_golden_crossover"}
             severe_patterns = [p for p in opposing_patterns if p in severe_set]
 
-        # Evaluate Trend Invalidation
+        # Base confidence from detected opposing patterns
+        max_opposing_strength = 0.0
+        for p in detected_patterns:
+            p_dir = p.get("direction")
+            if (side_upper == "BUY" and p_dir == "SELL") or (side_upper == "SELL" and p_dir == "BUY"):
+                max_opposing_strength = max(max_opposing_strength, float(p.get("strength", 0.70)))
+
+        is_sub_vwap = (vwap > 0 and close_p < vwap)
+        is_above_vwap = (vwap > 0 and close_p > vwap)
+        is_bearish_ema = (ema20 < ema50)
+        is_bullish_ema = (ema20 > ema50)
+        is_severe_break = (is_sub_vwap and is_bearish_ema) if side_upper == "BUY" else (is_above_vwap and is_bullish_ema)
+
+        # Confluence boosters
+        pattern_confluence = 0.05 if len(opposing_patterns) >= 2 else 0.0
+        structural_confluence = 0.08 if is_severe_break else (0.04 if (is_sub_vwap if side_upper == "BUY" else is_above_vwap) else 0.0)
+        rsi_confluence = 0.05 if (rsi < 40 if side_upper == "BUY" else rsi > 60) else 0.0
+        loss_confluence = 0.05 if pnl_pct < -0.35 else 0.0
+
+        if max_opposing_strength > 0:
+            invalidation_confidence = round(min(0.95, max_opposing_strength + pattern_confluence + structural_confluence + loss_confluence), 2)
+        elif is_severe_break and pnl_pct < -0.25:
+            invalidation_confidence = round(min(0.90, 0.76 + structural_confluence + rsi_confluence + loss_confluence), 2)
+        elif is_severe_break:
+            invalidation_confidence = 0.74
+        elif (is_sub_vwap if side_upper == "BUY" else is_above_vwap) or (is_bearish_ema if side_upper == "BUY" else is_bullish_ema):
+            invalidation_confidence = 0.62
+        else:
+            invalidation_confidence = 0.20
+
+        # Evaluate Trend Invalidation (Strict 80% Confidence Gate)
         health_status = "HEALTHY"
         trend_shift = False
         recommendation = "HOLD — Setup Intact"
         invalidation_reason = None
 
-        if side_upper == "BUY":
-            # Check Long Invalidation
-            is_sub_vwap = (vwap > 0 and close_p < vwap)
-            is_bearish_ema = (ema20 < ema50)
-            is_severe_break = is_sub_vwap and is_bearish_ema
+        conf_pct = int(invalidation_confidence * 100)
+        from backend.core.config import settings
+        min_release_conf = getattr(settings, "MIN_RELEASE_CONFIDENCE", 0.80)
 
-            if severe_patterns and pnl_pct < 0:
-                health_status = "RELEASE_STOCK"
-                trend_shift = True
-                invalidation_reason = f"Opposing Pattern: {', '.join(severe_patterns)}"
-                recommendation = "RELEASE STOCK — Reversal Pattern Against Position"
-            elif is_severe_break and pnl_pct < -0.25:
-                health_status = "RELEASE_STOCK"
-                trend_shift = True
-                invalidation_reason = "Price lost VWAP with Bearish EMA20/50 Cross"
-                recommendation = "RELEASE STOCK — Bearish Trend Shift Confirmed"
-            elif opposing_patterns and pnl_pct < -0.20:
-                health_status = "RELEASE_STOCK"
-                trend_shift = True
-                invalidation_reason = f"Opposing Signals: {', '.join(opposing_patterns)}"
-                recommendation = "RELEASE STOCK — Momentum Reversal"
-            elif is_sub_vwap or is_bearish_ema or rsi < 42 or pnl_pct < -0.5:
-                health_status = "WARNING"
-                invalidation_reason = "Momentum softening below key trendline / VWAP"
-                recommendation = "CAUTION — Trend Weakening"
+        if invalidation_confidence >= min_release_conf and pnl_pct < 0:
+            health_status = "RELEASE_STOCK"
+            trend_shift = True
+            if severe_patterns:
+                invalidation_reason = f"Opposing Pattern: {', '.join(severe_patterns)} ({conf_pct}% confidence)"
+                recommendation = f"RELEASE STOCK ({conf_pct}% Invalidation Confidence)"
+            elif is_severe_break:
+                invalidation_reason = f"Trend Shift: Lost VWAP & EMA cross ({conf_pct}% confidence)"
+                recommendation = f"RELEASE STOCK ({conf_pct}% Invalidation Confidence)"
+            else:
+                invalidation_reason = f"Opposing Momentum ({conf_pct}% confidence)"
+                recommendation = f"RELEASE STOCK ({conf_pct}% Invalidation Confidence)"
+        elif invalidation_confidence >= 0.60 or pnl_pct < -0.40:
+            health_status = "WARNING"
+            trend_shift = False
+            invalidation_reason = f"Momentum softening ({conf_pct}% risk, below 80% release threshold)"
+            recommendation = f"CAUTION — Momentum Softening ({conf_pct}%)"
         else:
-            # Check Short Invalidation
-            is_above_vwap = (vwap > 0 and close_p > vwap)
-            is_bullish_ema = (ema20 > ema50)
-            is_severe_break = is_above_vwap and is_bullish_ema
-
-            if severe_patterns and pnl_pct < 0:
-                health_status = "RELEASE_STOCK"
-                trend_shift = True
-                invalidation_reason = f"Opposing Pattern: {', '.join(severe_patterns)}"
-                recommendation = "RELEASE STOCK — Bullish Reversal Pattern Formed"
-            elif is_severe_break and pnl_pct < -0.25:
-                health_status = "RELEASE_STOCK"
-                trend_shift = True
-                invalidation_reason = "Price rallied above VWAP with Bullish EMA20/50 Cross"
-                recommendation = "RELEASE STOCK — Bullish Trend Shift Confirmed"
-            elif opposing_patterns and pnl_pct < -0.20:
-                health_status = "RELEASE_STOCK"
-                trend_shift = True
-                invalidation_reason = f"Opposing Signals: {', '.join(opposing_patterns)}"
-                recommendation = "RELEASE STOCK — Momentum Reversal"
-            elif is_above_vwap or is_bullish_ema or rsi > 58 or pnl_pct < -0.5:
-                health_status = "WARNING"
-                invalidation_reason = "Counter-trend buying pressure above key level"
-                recommendation = "CAUTION — Counter-Trend Bounce"
+            health_status = "HEALTHY"
+            trend_shift = False
+            invalidation_reason = None
+            recommendation = "HOLD — Pattern & Trend Intact"
 
         return {
             "health_status": health_status,
             "trend_shift": trend_shift,
             "recommendation": recommendation,
             "invalidation_reason": invalidation_reason,
+            "invalidation_confidence": invalidation_confidence,
             "opposing_patterns": opposing_patterns
         }
 

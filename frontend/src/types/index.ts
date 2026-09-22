@@ -70,6 +70,7 @@ export interface PositionData {
   trend_shift?: boolean;
   recommendation?: string;
   invalidation_reason?: string | null;
+  invalidation_confidence?: number | null;
   opposing_patterns?: string[];
 }
 

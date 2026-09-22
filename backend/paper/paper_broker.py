@@ -339,7 +339,7 @@ class PaperBroker:
                 else:
                     pos.unrealized_pnl = round((pos.average_price - current_price) * pos.quantity, 2)
 
-                # Trailing Breakeven Auto-Lock
+                # Trailing Breakeven Auto-Lock (Stage 1: Protect Capital at +0.3% profit)
                 if pos.side == 'BUY' and pos.stop_loss and pos.stop_loss < pos.average_price:
                     if current_price >= pos.average_price * 1.003:  # +0.3% profit
                         pos.stop_loss = pos.average_price
@@ -348,6 +348,18 @@ class PaperBroker:
                     if current_price <= pos.average_price * 0.997:  # +0.3% profit
                         pos.stop_loss = pos.average_price
                         triggers.append({'type': 'BREAKEVEN_TRAILED', 'symbol': pos.symbol, 'side': pos.side, 'breakeven_price': pos.average_price, 'current_price': current_price})
+
+                # Trailing Profit Lock (Stage 2: Lock in +0.4% guaranteed profit at +0.8% gain)
+                if pos.side == 'BUY' and pos.stop_loss and pos.stop_loss <= pos.average_price:
+                    if current_price >= pos.average_price * 1.008:  # +0.8% profit
+                        locked_sl = round(pos.average_price * 1.004, 2)
+                        pos.stop_loss = locked_sl
+                        triggers.append({'type': 'PROFIT_LOCKED', 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': locked_sl, 'current_price': current_price})
+                elif pos.side == 'SELL' and pos.stop_loss and pos.stop_loss >= pos.average_price:
+                    if current_price <= pos.average_price * 0.992:  # +0.8% profit
+                        locked_sl = round(pos.average_price * 0.996, 2)
+                        pos.stop_loss = locked_sl
+                        triggers.append({'type': 'PROFIT_LOCKED', 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': locked_sl, 'current_price': current_price})
 
                 reason = None
                 if pos.side == 'BUY':
@@ -400,7 +412,7 @@ class PaperBroker:
                     if window_expired and not reason:
                         if pos.symbol.startswith("TEST_"):
                             reason = f"{window_m}-Min Window Expired" if window_m != 10 else "10-Min Window Expired"
-                        elif pos.unrealized_pnl > 0 and window_m < 90:
+                        elif pos.unrealized_pnl > 0 and window_m < 90 and getattr(settings, "AUTO_EXTEND_WINNERS", True):
                             # Position is in profit! Lock breakeven stop loss and extend window by 15 mins to let winner run
                             if pos.side == 'BUY' and (pos.stop_loss is None or pos.stop_loss < pos.average_price):
                                 pos.stop_loss = pos.average_price

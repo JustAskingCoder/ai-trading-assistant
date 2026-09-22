@@ -114,8 +114,14 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       <td className="py-2.5 text-slate-300">{prefix}{(p.average_price ?? 0).toFixed(dec)}</td>
                       <td className="py-2.5 text-white font-medium">{prefix}{(p.current_price ?? p.average_price ?? 0).toFixed(dec)}</td>
                       <td className="py-2.5">
-                        {p.stop_loss !== null && p.stop_loss !== undefined && Math.abs(p.stop_loss - p.average_price) < (isForex ? 0.0005 : 0.05) ? (
-                          <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold text-sky-300 border border-sky-500/30">
+                        {p.stop_loss !== null && p.stop_loss !== undefined && (
+                          p.side === 'BUY' ? p.stop_loss > p.average_price + (isForex ? 0.0005 : 0.05) : p.stop_loss < p.average_price - (isForex ? 0.0005 : 0.05)
+                        ) ? (
+                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30" title="Stage 2 Trailing: +0.4% Profit Locked In!">
+                            🔒 Lock ({prefix}{p.stop_loss.toFixed(dec)})
+                          </span>
+                        ) : p.stop_loss !== null && p.stop_loss !== undefined && Math.abs(p.stop_loss - p.average_price) <= (isForex ? 0.0005 : 0.05) ? (
+                          <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold text-sky-300 border border-sky-500/30" title="Stage 1: Risk-Free (Stop-Loss at Breakeven)">
                             🛡 Breakeven ({prefix}{p.stop_loss.toFixed(dec)})
                           </span>
                         ) : (
@@ -130,24 +136,27 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                         </span>
                       </td>
                       <td className="py-2.5">
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold border ${windowStatus.style}`}>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-bold border ${windowStatus.style}`}
+                          title={p.window_minutes && p.window_minutes > 30 ? `Profitable position: Holding window extended from 30m base to ${p.window_minutes}m with breakeven locked to let profits expand.` : `Active trade holding window.`}
+                        >
                           {windowStatus.text}
                         </span>
                       </td>
                       <td className="py-2.5">
-                        {isRelease ? (
+                        {isRelease && (p.invalidation_confidence === undefined || p.invalidation_confidence >= 0.80) ? (
                           <span
                             className="inline-flex items-center gap-1 rounded bg-rose-500/20 px-1.5 py-0.5 text-[10px] font-black text-rose-300 border border-rose-500/40 animate-pulse"
-                            title={p.invalidation_reason || 'Opposing pattern or trend shift detected'}
+                            title={p.invalidation_reason || 'Opposing pattern or trend shift detected with >= 80% confidence'}
                           >
-                            🚨 RELEASE STOCK
+                            🚨 RELEASE ({p.invalidation_confidence ? Math.round(p.invalidation_confidence * 100) : 80}%)
                           </span>
                         ) : isWarning ? (
                           <span
                             className="inline-flex items-center gap-1 rounded bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30"
-                            title={p.invalidation_reason || 'Trend momentum weakening'}
+                            title={p.invalidation_reason || 'Trend momentum weakening (< 80% confidence)'}
                           >
-                            ⚠️ Weakening
+                            ⚠️ Weakening ({p.invalidation_confidence ? Math.round(p.invalidation_confidence * 100) : 65}%)
                           </span>
                         ) : (
                           <span
@@ -163,17 +172,17 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       </td>
                       {onClosePosition && (
                         <td className="py-2.5 text-right">
-                          {isRelease ? (
+                          {isRelease && (p.invalidation_confidence === undefined || p.invalidation_confidence >= 0.80) ? (
                             <button
                               onClick={() => {
-                                if (window.confirm(`🚨 TREND SHIFT DETECTED!\n\nReason: ${p.invalidation_reason || 'Pattern invalidation / opposing momentum'}\n\nRelease ${p.symbol} (${p.quantity} qty) now to protect capital?`)) {
+                                if (window.confirm(`🚨 80%+ CONFIDENT TREND SHIFT DETECTED!\n\nReason: ${p.invalidation_reason || 'Pattern invalidation / opposing momentum'}\nConfidence: ${p.invalidation_confidence ? Math.round(p.invalidation_confidence * 100) : 80}%\n\nRelease ${p.symbol} (${p.quantity} qty) now to protect capital?`)) {
                                   onClosePosition(p.id);
                                 }
                               }}
                               className="rounded bg-rose-600 hover:bg-rose-500 px-2 py-0.5 text-[11px] font-black text-white hover:text-rose-100 shadow-md shadow-rose-950/50 border border-rose-400 animate-pulse transition-transform active:scale-95"
-                              title={`🚨 RELEASE STOCK: ${p.invalidation_reason || 'Trend Shift'}`}
+                              title={`🚨 RELEASE STOCK: ${p.invalidation_reason || '>= 80% confident trend shift'}`}
                             >
-                              🚨 Release Stock
+                              🚨 Release ({p.invalidation_confidence ? Math.round(p.invalidation_confidence * 100) : 80}%)
                             </button>
                           ) : (
                             <button
