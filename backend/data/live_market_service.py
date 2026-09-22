@@ -18,6 +18,13 @@ from backend.data.market_simulator import simulator
 from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.core.logging import logger
 from backend.core.config import settings
+from backend.data.scanner_engine import (
+    analyze_high_win_rate_scanners,
+    detect_ohl_pattern,
+    calculate_cpr_levels,
+    detect_volume_surge,
+    detect_day_breakouts
+)
 
 SYMBOL_MAP = {
     # Indian Equities & Indices
@@ -353,6 +360,22 @@ class LiveMarketService:
         target_dist = abs(tgt - entry_price)
         risk_reward = round(target_dist / (risk_dist + 1e-10), 2)
 
+        # High-Win-Rate Intraday Scanner Analysis
+        cpr_data = calculate_cpr_levels(high_p, low_p, entry_price, current_price=entry_price)
+        ohl_data = detect_ohl_pattern(open_p, high_p, low_p)
+        bo_data = detect_day_breakouts(entry_price, high_p, low_p, is_volume_expanding=(abs(change_pct) >= 0.5))
+
+        scanner_tags = []
+        if ohl_data.get("is_ohl") and ohl_data.get("label"):
+            scanner_tags.append(ohl_data["label"])
+        if cpr_data.get("is_narrow") and cpr_data.get("label"):
+            scanner_tags.append(cpr_data["label"])
+        if bo_data.get("label"):
+            scanner_tags.append(bo_data["label"])
+
+        confluence_score = len(scanner_tags)
+        confluence_badge = "⚡ A+ Setup" if confluence_score >= 2 else ("✦ Setup Forming" if confluence_score == 1 else None)
+
         return {
             "symbol": clean_sym,
             "name": name,
@@ -380,6 +403,13 @@ class LiveMarketService:
             "is_market_open": get_market_trading_status(market)["is_open"],
             "market_status": get_market_trading_status(market)["status"],
             "market_status_message": get_market_trading_status(market)["message"],
+            "cpr": cpr_data,
+            "ohl": ohl_data,
+            "day_breakout": bo_data,
+            "volume_surge": {"is_surge": False, "ratio": 1.0, "label": None},
+            "scanner_tags": scanner_tags,
+            "confluence_score": confluence_score,
+            "confluence_badge": confluence_badge,
             "indicators": {
                 "day_high": round(high_p, dec),
                 "day_low": round(low_p, dec),
@@ -692,6 +722,9 @@ class LiveMarketService:
             target_profit = round(target_dist * quantity, dec)
             max_risk = round(risk_dist * quantity, dec)
 
+            # High-Win-Rate Intraday Scanner Analysis
+            scanners = analyze_high_win_rate_scanners(ind_df, current_price=entry_price)
+
             quote_payload = {
                 "symbol": clean_sym,
                 "name": name,
@@ -720,6 +753,14 @@ class LiveMarketService:
                 "market_status_message": get_market_trading_status(market)["message"],
                 "market_tide": market_tide,
                 "macro_trend": macro_trend,
+                "cpr": scanners["cpr"],
+                "ohl": scanners["ohl"],
+                "volume_surge": scanners["volume_surge"],
+                "day_breakout": scanners["day_breakout"],
+                "scanner_tags": scanners["confluence"]["tags"],
+                "confluence_score": scanners["confluence"]["score"],
+                "confluence_badge": scanners["confluence"]["badge"],
+                "confluence_grade": scanners["confluence"]["grade"],
                 "patterns": strat_sig.get("patterns", []) if strat_sig else (detect_all_patterns(ind_df, -1) if len(ind_df) >= 20 else []),
                 "indicators": {
                     "rsi": round(float(last_candle["rsi"]), 2) if pd.notnull(last_candle.get("rsi")) else None,
@@ -830,6 +871,78 @@ class LiveMarketService:
             logger.debug("Error syncing paper positions from watchlist quotes: %s", sync_e)
 
         return final_quotes
+
+    def get_categorized_scanners(self, symbols: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Scan watchlist instruments and group into high-win-rate intraday categories:
+        - open_low: Open = Low Bullish momentum
+        - open_high: Open = High Bearish momentum
+        - volume_surge: Abnormal volume >= 2.0x SMA20
+        - narrow_cpr: Narrow CPR <= 0.25% (Trending setups)
+        - day_breakouts: Day High Breakouts / Day Low Breakdowns
+        - high_confluence: Confluence score >= 2 (A+ setups)
+        """
+        target_symbols = symbols or [
+            "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN",
+            "BHARTIARTL", "TATAMOTORS", "USDINR", "EURUSD"
+        ]
+        quotes = self.get_watchlist_quotes(target_symbols)
+
+        categorized: Dict[str, Any] = {
+            "high_confluence": [],
+            "open_low": [],
+            "open_high": [],
+            "volume_surge": [],
+            "narrow_cpr": [],
+            "day_breakouts": [],
+            "all": quotes,
+            "counts": {
+                "high_confluence": 0,
+                "open_low": 0,
+                "open_high": 0,
+                "volume_surge": 0,
+                "narrow_cpr": 0,
+                "day_breakouts": 0,
+                "total": len(quotes)
+            },
+            "timestamp": datetime.now().isoformat()
+        }
+
+        for q in quotes:
+            if not q or q.get("price", 0) <= 0:
+                continue
+
+            conf_score = q.get("confluence_score", 0)
+            if conf_score >= 2:
+                categorized["high_confluence"].append(q)
+
+            ohl = q.get("ohl", {})
+            if isinstance(ohl, dict):
+                if ohl.get("signal") == "OPEN_LOW":
+                    categorized["open_low"].append(q)
+                elif ohl.get("signal") == "OPEN_HIGH":
+                    categorized["open_high"].append(q)
+
+            vs = q.get("volume_surge", {})
+            if isinstance(vs, dict) and vs.get("is_surge"):
+                categorized["volume_surge"].append(q)
+
+            cpr = q.get("cpr", {})
+            if isinstance(cpr, dict) and cpr.get("is_narrow"):
+                categorized["narrow_cpr"].append(q)
+
+            bo = q.get("day_breakout", {})
+            if isinstance(bo, dict) and (bo.get("is_breakout") or bo.get("is_breakdown")):
+                categorized["day_breakouts"].append(q)
+
+        categorized["counts"]["high_confluence"] = len(categorized["high_confluence"])
+        categorized["counts"]["open_low"] = len(categorized["open_low"])
+        categorized["counts"]["open_high"] = len(categorized["open_high"])
+        categorized["counts"]["volume_surge"] = len(categorized["volume_surge"])
+        categorized["counts"]["narrow_cpr"] = len(categorized["narrow_cpr"])
+        categorized["counts"]["day_breakouts"] = len(categorized["day_breakouts"])
+
+        return categorized
 
     def start(
         self,

@@ -131,6 +131,45 @@ export interface RiskStatus {
   }>;
 }
 
+export interface CPRData {
+  pivot: number;
+  tc: number;
+  bc: number;
+  lower_boundary?: number;
+  upper_boundary?: number;
+  width_pct: number;
+  cpr_type: 'NARROW' | 'WIDE' | 'AVERAGE';
+  price_location: 'ABOVE_CPR' | 'BELOW_CPR' | 'INSIDE_CPR' | 'UNKNOWN';
+  label?: string | null;
+  is_narrow: boolean;
+}
+
+export interface OHLData {
+  signal: 'OPEN_LOW' | 'OPEN_HIGH' | 'NONE';
+  diff_pct: number;
+  label?: string | null;
+  is_ohl: boolean;
+  bias?: 'BULLISH' | 'BEARISH' | 'NEUTRAL';
+  description?: string;
+}
+
+export interface VolumeSurgeData {
+  is_surge: boolean;
+  ratio: number;
+  current_volume?: number;
+  avg_volume?: number;
+  surge_type?: 'BULLISH_SURGE' | 'BEARISH_SURGE' | 'NORMAL';
+  label?: string | null;
+}
+
+export interface DayBreakoutData {
+  is_breakout: boolean;
+  is_breakdown: boolean;
+  label?: string | null;
+  day_high?: number;
+  day_low?: number;
+}
+
 export interface WatchlistQuote {
   symbol: string;
   name?: string;
@@ -159,6 +198,34 @@ export interface WatchlistQuote {
   is_market_open?: boolean;
   market_status?: 'OPEN' | 'CLOSED';
   market_status_message?: string;
+  cpr?: CPRData;
+  ohl?: OHLData;
+  volume_surge?: VolumeSurgeData;
+  day_breakout?: DayBreakoutData;
+  scanner_tags?: string[];
+  confluence_score?: number;
+  confluence_badge?: string | null;
+  confluence_grade?: string;
+}
+
+export interface ScannerSummary {
+  high_confluence: WatchlistQuote[];
+  open_low: WatchlistQuote[];
+  open_high: WatchlistQuote[];
+  volume_surge: WatchlistQuote[];
+  narrow_cpr: WatchlistQuote[];
+  day_breakouts: WatchlistQuote[];
+  all: WatchlistQuote[];
+  counts: {
+    high_confluence: number;
+    open_low: number;
+    open_high: number;
+    volume_surge: number;
+    narrow_cpr: number;
+    day_breakouts: number;
+    total: number;
+  };
+  timestamp: string;
 }
 
 export interface MarketTradingStatus {

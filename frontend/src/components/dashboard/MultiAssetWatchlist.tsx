@@ -4,7 +4,8 @@ import { api } from '../../services/api';
 import { getNSEMarketStatus, getMarketStatusForSymbol } from '../../utils/marketHours';
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw, Activity,
-  LayoutGrid, Table, Zap, Target, Shield, ArrowUpRight, ArrowDownRight
+  LayoutGrid, Table, Zap, Target, Shield, ArrowUpRight, ArrowDownRight,
+  Flame, Crosshair, Sparkles
 } from 'lucide-react';
 
 interface Props {
@@ -14,10 +15,22 @@ interface Props {
   onQuotesUpdate?: (quotes: WatchlistQuote[]) => void;
 }
 
-type FilterCategory = 'All' | 'NSE' | 'FOREX';
+type FilterCategory =
+  | 'All'
+  | 'High Confluence'
+  | 'Open=Low'
+  | 'Open=High'
+  | 'Volume Surge'
+  | 'Narrow CPR'
+  | 'Day Breakouts'
+  | 'NSE'
+  | 'FOREX';
 type ViewMode = 'cards' | 'matrix';
 
-const DEFAULT_SYMBOLS = ['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'USDINR', 'EURUSD'];
+const DEFAULT_SYMBOLS = [
+  'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN',
+  'BHARTIARTL', 'TATAMOTORS', 'USDINR', 'EURUSD'
+];
 
 const FALLBACK_QUOTES: WatchlistQuote[] = [
   {
@@ -224,9 +237,29 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
     return () => clearInterval(timer);
   }, [fetchWatchlist]);
 
+  const counts = {
+    all: quotes.length,
+    highConfluence: quotes.filter((q) => (q.confluence_score || 0) >= 2).length,
+    openLow: quotes.filter((q) => q.ohl?.signal === 'OPEN_LOW').length,
+    openHigh: quotes.filter((q) => q.ohl?.signal === 'OPEN_HIGH').length,
+    volSurge: quotes.filter((q) => q.volume_surge?.is_surge).length,
+    narrowCpr: quotes.filter((q) => q.cpr?.is_narrow).length,
+    dayBreakouts: quotes.filter((q) => q.day_breakout?.is_breakout || q.day_breakout?.is_breakdown).length,
+    nse: quotes.filter((q) => q.market === 'NSE').length,
+    forex: quotes.filter((q) => q.market === 'FOREX').length,
+  };
+
   const filteredQuotes = quotes.filter((q) => {
     if (filter === 'All') return true;
-    return q.market === filter;
+    if (filter === 'High Confluence') return (q.confluence_score || 0) >= 2;
+    if (filter === 'Open=Low') return q.ohl?.signal === 'OPEN_LOW';
+    if (filter === 'Open=High') return q.ohl?.signal === 'OPEN_HIGH';
+    if (filter === 'Volume Surge') return !!q.volume_surge?.is_surge;
+    if (filter === 'Narrow CPR') return !!q.cpr?.is_narrow;
+    if (filter === 'Day Breakouts') return !!(q.day_breakout?.is_breakout || q.day_breakout?.is_breakdown);
+    if (filter === 'NSE') return q.market === 'NSE';
+    if (filter === 'FOREX') return q.market === 'FOREX';
+    return true;
   });
 
   const formatPrice = (price: number, market: 'NSE' | 'FOREX', symbol: string) => {
@@ -387,6 +420,105 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
         </div>
       </div>
 
+      {/* High-Win-Rate Intraday Scanners Filter Bar */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2.5 mb-3 border-b border-dark-700/50 text-xs">
+        <span className="text-[11px] font-black uppercase text-slate-400 tracking-wider flex items-center gap-1 shrink-0 mr-1">
+          <Sparkles className="h-3.5 w-3.5 text-amber-400" /> Scanners:
+        </span>
+
+        <button
+          onClick={() => setFilter('All')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all ${
+            filter === 'All'
+              ? 'bg-slate-700 text-white shadow'
+              : 'bg-dark-900/80 text-slate-400 hover:text-white border border-dark-700'
+          }`}
+        >
+          All ({counts.all})
+        </button>
+
+        <button
+          onClick={() => setFilter('High Confluence')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-black shrink-0 transition-all ${
+            filter === 'High Confluence'
+              ? 'bg-gradient-to-r from-amber-500 to-purple-600 text-white shadow-lg shadow-amber-500/20 ring-1 ring-amber-400'
+              : counts.highConfluence > 0
+              ? 'bg-gradient-to-r from-amber-500/20 to-purple-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
+              : 'bg-dark-900/80 text-slate-500 border border-dark-700'
+          }`}
+        >
+          <Sparkles className="h-3 w-3 text-amber-400" />
+          ⚡ High Confluence ({counts.highConfluence})
+        </button>
+
+        <button
+          onClick={() => setFilter('Open=Low')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all ${
+            filter === 'Open=Low'
+              ? 'bg-emerald-600 text-white shadow'
+              : counts.openLow > 0
+              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25'
+              : 'bg-dark-900/80 text-slate-500 border border-dark-700'
+          }`}
+        >
+          🟢 Open = Low ({counts.openLow})
+        </button>
+
+        <button
+          onClick={() => setFilter('Open=High')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all ${
+            filter === 'Open=High'
+              ? 'bg-rose-600 text-white shadow'
+              : counts.openHigh > 0
+              ? 'bg-rose-500/15 text-rose-300 border border-rose-500/40 hover:bg-rose-500/25'
+              : 'bg-dark-900/80 text-slate-500 border border-dark-700'
+          }`}
+        >
+          🔴 Open = High ({counts.openHigh})
+        </button>
+
+        <button
+          onClick={() => setFilter('Volume Surge')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all ${
+            filter === 'Volume Surge'
+              ? 'bg-amber-600 text-white shadow'
+              : counts.volSurge > 0
+              ? 'bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25'
+              : 'bg-dark-900/80 text-slate-500 border border-dark-700'
+          }`}
+        >
+          <Flame className="h-3 w-3 text-amber-400" />
+          🔥 Vol Surge ({counts.volSurge})
+        </button>
+
+        <button
+          onClick={() => setFilter('Narrow CPR')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all ${
+            filter === 'Narrow CPR'
+              ? 'bg-indigo-600 text-white shadow'
+              : counts.narrowCpr > 0
+              ? 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/40 hover:bg-indigo-500/25'
+              : 'bg-dark-900/80 text-slate-500 border border-dark-700'
+          }`}
+        >
+          <Crosshair className="h-3 w-3 text-indigo-400" />
+          🎯 Narrow CPR ({counts.narrowCpr})
+        </button>
+
+        <button
+          onClick={() => setFilter('Day Breakouts')}
+          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-bold shrink-0 transition-all ${
+            filter === 'Day Breakouts'
+              ? 'bg-purple-600 text-white shadow'
+              : counts.dayBreakouts > 0
+              ? 'bg-purple-500/15 text-purple-300 border border-purple-500/40 hover:bg-purple-500/25'
+              : 'bg-dark-900/80 text-slate-500 border border-dark-700'
+          }`}
+        >
+          ⚡ Breakouts ({counts.dayBreakouts})
+        </button>
+      </div>
+
       {/* VIEW 1: CARDS VIEW */}
       {viewMode === 'cards' ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
@@ -478,6 +610,52 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                     </div>
                   </div>
 
+                  {/* High-Win-Rate Confluence Badge */}
+                  {item.confluence_badge && (
+                    <div className="flex items-center justify-between rounded-lg bg-gradient-to-r from-amber-500/20 to-purple-500/20 border border-amber-500/40 px-2 py-1 text-[10px] font-black text-amber-300 mb-2 shadow-sm">
+                      <span className="flex items-center gap-1">
+                        <Sparkles className="h-3 w-3 text-amber-400 animate-pulse" />
+                        {item.confluence_badge}
+                      </span>
+                      <span className="rounded bg-amber-400/20 px-1 py-0.2 text-[9px] text-amber-200">
+                        Score {item.confluence_score || 0}/4
+                      </span>
+                    </div>
+                  )}
+
+                  {/* Institutional Scanner Badges */}
+                  {item.scanner_tags && item.scanner_tags.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mb-2">
+                      {item.scanner_tags.map((tag, tIdx) => (
+                        <span
+                          key={tIdx}
+                          className="text-[9px] font-black px-1.5 py-0.5 rounded bg-dark-900 border border-amber-500/30 text-amber-300 tracking-tight shadow-sm"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* CPR Indicator */}
+                  {item.cpr && (
+                    <div className="flex items-center justify-between text-[10px] bg-dark-950/70 px-2 py-1 rounded-lg border border-dark-700/60 mb-2">
+                      <span className="text-slate-400 flex items-center gap-1 text-[9px]">
+                        <Crosshair className="h-2.5 w-2.5 text-indigo-400" /> CPR:
+                      </span>
+                      <span className={`font-mono font-bold text-[9px] ${item.cpr.is_narrow ? 'text-amber-400 font-extrabold' : 'text-slate-300'}`}>
+                        {item.cpr.cpr_type} ({item.cpr.width_pct}%)
+                      </span>
+                      <span className={`text-[8px] font-bold px-1 rounded ${
+                        item.cpr.price_location === 'ABOVE_CPR' ? 'bg-emerald-500/20 text-emerald-300' :
+                        item.cpr.price_location === 'BELOW_CPR' ? 'bg-rose-500/20 text-rose-300' :
+                        'bg-slate-700 text-slate-300'
+                      }`}>
+                        {item.cpr.price_location === 'ABOVE_CPR' ? '▲ Above' : item.cpr.price_location === 'BELOW_CPR' ? '▼ Below' : '■ In'}
+                      </span>
+                    </div>
+                  )}
+
                   {/* Trade Decision Headline Banner */}
                   <div className="mb-2.5">
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
@@ -566,6 +744,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
               <tr>
                 <th className="px-4 py-3">Asset</th>
                 <th className="px-3 py-3">Category</th>
+                <th className="px-3 py-3 text-center">Institutional Scanners & CPR</th>
                 <th className="px-3 py-3 text-right">Live Price</th>
                 <th className="px-3 py-3 text-right">Day %</th>
                 <th className="px-4 py-3 text-center">Action Decision</th>
@@ -624,6 +803,35 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                         >
                           {item.market}
                         </span>
+                      </div>
+                    </td>
+
+                    {/* Institutional Scanners & CPR */}
+                    <td className="px-3 py-3.5 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        {item.confluence_badge && (
+                          <span className="flex items-center gap-1 rounded bg-gradient-to-r from-amber-500/20 to-purple-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.5 text-[9px] font-black">
+                            <Sparkles className="h-2 w-2 text-amber-400" />
+                            {item.confluence_badge}
+                          </span>
+                        )}
+                        {item.scanner_tags && item.scanner_tags.length > 0 && (
+                          <div className="flex flex-wrap justify-center gap-1 max-w-[150px]">
+                            {item.scanner_tags.slice(0, 2).map((tag, tIdx) => (
+                              <span
+                                key={tIdx}
+                                className="text-[8px] font-black px-1.5 py-0.5 rounded bg-dark-950 text-amber-300 border border-amber-500/30"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {item.cpr && (
+                          <span className="text-[8px] text-slate-400 font-mono">
+                            CPR: <span className={item.cpr.is_narrow ? 'text-amber-400 font-bold' : 'text-slate-300'}>{item.cpr.cpr_type}</span> ({item.cpr.width_pct}%)
+                          </span>
+                        )}
                       </div>
                     </td>
 

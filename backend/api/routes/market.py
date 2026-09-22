@@ -123,6 +123,13 @@ def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,USDINR,EURUSD
     return live_service.get_watchlist_quotes(symbol_list)
 
 
+@router.get("/market/scanners")
+def get_scanners(symbols: Optional[str] = Query(None)):
+    """Return categorized high-win-rate intraday scanner results across tracked symbols."""
+    symbol_list = [s.strip() for s in symbols.split(",") if s.strip()] if symbols else None
+    return live_service.get_categorized_scanners(symbol_list)
+
+
 @router.get("/market/status")
 def get_market_session_status(category: str = "NSE"):
     """Get real-time exchange trading status (OPEN / CLOSED) and trading hours."""

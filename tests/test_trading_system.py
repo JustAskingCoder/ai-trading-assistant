@@ -2193,5 +2193,158 @@ def test_market_session_status_and_closed_detection():
     assert "trading_hours" in data
 
 
+def test_scanner_engine_ohl_detection():
+    """Verify Open = High (Bearish) and Open = Low (Bullish) institutional momentum detection."""
+    from backend.data.scanner_engine import detect_ohl_pattern
+
+    # 1. Open = Low (Bullish Institutional Buying)
+    ohl_bull = detect_ohl_pattern(open_price=1000.0, high_price=1025.0, low_price=1000.0)
+    assert ohl_bull["signal"] == "OPEN_LOW"
+    assert ohl_bull["is_ohl"] is True
+    assert ohl_bull["bias"] == "BULLISH"
+    assert "🟢 O=L" in ohl_bull["label"]
+
+    # 2. Open = Low with 0.03% tolerance (< 0.05%)
+    ohl_bull_tol = detect_ohl_pattern(open_price=1000.0, high_price=1030.0, low_price=999.7)
+    assert ohl_bull_tol["signal"] == "OPEN_LOW"
+    assert ohl_bull_tol["is_ohl"] is True
+
+    # 3. Open = High (Bearish Institutional Selling)
+    ohl_bear = detect_ohl_pattern(open_price=1000.0, high_price=1000.0, low_price=970.0)
+    assert ohl_bear["signal"] == "OPEN_HIGH"
+    assert ohl_bear["is_ohl"] is True
+    assert ohl_bear["bias"] == "BEARISH"
+    assert "🔴 O=H" in ohl_bear["label"]
+
+    # 4. Standard candle with wicks in both directions (None)
+    ohl_none = detect_ohl_pattern(open_price=1000.0, high_price=1015.0, low_price=985.0)
+    assert ohl_none["signal"] == "NONE"
+    assert ohl_none["is_ohl"] is False
+    assert ohl_none["label"] is None
+
+
+def test_scanner_engine_volume_surge():
+    """Verify Volume Surge (>= 2.0x SMA20) detection and Bullish/Bearish classification."""
+    from backend.data.scanner_engine import detect_volume_surge
+
+    # 1. Bullish Volume Surge (ratio >= 2.0 and close >= open)
+    vs_bull = detect_volume_surge(
+        current_volume=3000,
+        avg_volume=1000,
+        current_close=105.0,
+        current_open=100.0
+    )
+    assert vs_bull["is_surge"] is True
+    assert vs_bull["ratio"] == 3.0
+    assert vs_bull["surge_type"] == "BULLISH_SURGE"
+    assert "🔥 Vol 3.0x (Bull)" in vs_bull["label"]
+
+    # 2. Bearish Volume Surge (ratio >= 2.0 and close < open)
+    vs_bear = detect_volume_surge(
+        current_volume=2500,
+        avg_volume=1000,
+        current_close=95.0,
+        current_open=100.0
+    )
+    assert vs_bear["is_surge"] is True
+    assert vs_bear["ratio"] == 2.5
+    assert vs_bear["surge_type"] == "BEARISH_SURGE"
+    assert "🔥 Vol 2.5x (Bear)" in vs_bear["label"]
+
+    # 3. Normal Volume (ratio < 2.0)
+    vs_normal = detect_volume_surge(
+        current_volume=1200,
+        avg_volume=1000,
+        current_close=101.0,
+        current_open=100.0
+    )
+    assert vs_normal["is_surge"] is False
+    assert vs_normal["label"] is None
+
+
+def test_scanner_engine_cpr_levels():
+    """Verify Central Pivot Range (CPR) Pivot, BC, TC, width %, and territory classification."""
+    from backend.data.scanner_engine import calculate_cpr_levels
+
+    # 1. Narrow CPR (Width <= 0.25%) -> Trending Setup
+    # High = 1001, Low = 999, Close = 1000 -> Pivot = 1000, BC = 1000, TC = 1000 -> Width = 0
+    cpr_narrow = calculate_cpr_levels(high_price=1001.0, low_price=999.0, close_price=1000.0, current_price=1005.0)
+    assert cpr_narrow["is_narrow"] is True
+    assert cpr_narrow["cpr_type"] == "NARROW"
+    assert "🎯 Narrow CPR" in cpr_narrow["label"]
+    assert cpr_narrow["price_location"] == "ABOVE_CPR"
+
+    # 2. Wide CPR (Width >= 0.50%) -> Consolidation / Rangebound
+    # High = 1100, Low = 900, Close = 1050 -> Pivot = 1016.67, BC = 1000, TC = 1033.33 -> Width ~ 33.33 / 1016.67 = ~3.27%
+    cpr_wide = calculate_cpr_levels(high_price=1100.0, low_price=900.0, close_price=1050.0, current_price=950.0)
+    assert cpr_wide["is_narrow"] is False
+    assert cpr_wide["cpr_type"] == "WIDE"
+    assert cpr_wide["price_location"] == "BELOW_CPR"
+
+
+def test_scanner_engine_day_breakouts():
+    """Verify Day's High Breakout and Day's Low Breakdown detection."""
+    from backend.data.scanner_engine import detect_day_breakouts
+
+    # 1. Day High Breakout
+    bo_high = detect_day_breakouts(current_price=1050.0, day_high=1050.0, day_low=1000.0)
+    assert bo_high["is_breakout"] is True
+    assert bo_high["is_breakdown"] is False
+    assert "Day High Breakout" in bo_high["label"]
+
+    # 2. Day Low Breakdown
+    bo_low = detect_day_breakouts(current_price=1000.0, day_high=1050.0, day_low=1000.0)
+    assert bo_low["is_breakout"] is False
+    assert bo_low["is_breakdown"] is True
+    assert "Day Low Breakdown" in bo_low["label"]
+
+
+def test_scanner_engine_full_confluence():
+    """Verify multi-factor confluence scoring across candle dataframe."""
+    from backend.data.scanner_engine import analyze_high_win_rate_scanners
+
+    rows = []
+    # Build 30 candles where day open is 1000 and price rises with volume expansion
+    for i in range(30):
+        rows.append({
+            "timestamp": f"2026-09-22 09:{i*5:02d}:00",
+            "open": 1000.0 if i == 0 else 1000.0 + i,
+            "high": 1001.0 + i,
+            "low": 1000.0 if i == 0 else 999.0 + i,
+            "close": 1000.5 + i,
+            "volume": 1000 if i < 29 else 3500,  # volume surge on last candle
+            "volume_sma": 1000
+        })
+    df = pd.DataFrame(rows)
+
+    res = analyze_high_win_rate_scanners(df, current_price=1030.0)
+    assert "confluence" in res
+    assert res["confluence"]["score"] >= 2
+    assert res["confluence"]["grade"] == "A+ HIGH CONFLUENCE"
+    assert res["confluence"]["bias"] == "STRONG_BUY"
+    assert len(res["confluence"]["tags"]) >= 2
+
+
+def test_api_market_scanners_endpoint():
+    """Verify GET /api/market/scanners returns categorized results and counts."""
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    client = TestClient(app)
+    res = client.get("/api/market/scanners?symbols=RELIANCE,TCS")
+    assert res.status_code == 200
+    data = res.json()
+    assert "high_confluence" in data
+    assert "open_low" in data
+    assert "open_high" in data
+    assert "volume_surge" in data
+    assert "narrow_cpr" in data
+    assert "day_breakouts" in data
+    assert "counts" in data
+    assert "total" in data["counts"]
+    assert data["counts"]["total"] >= 1
+
+
+
 
 
