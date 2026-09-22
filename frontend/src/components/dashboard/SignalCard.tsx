@@ -3,6 +3,7 @@ import { Signal, TrendAnalysis } from '../../types';
 import { Sparkles, ArrowUpRight, Zap, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react';
 import { api } from '../../services/api';
 import { getMarketStatusForSymbol } from '../../utils/marketHours';
+import { formatPrice, getCurrencySymbol, getPrecisionForSymbol } from '../../utils/currency';
 
 interface TradeFeedback {
   type: 'success' | 'rejected';
@@ -101,12 +102,15 @@ export const SignalCard: React.FC<Props> = ({
     );
   }
 
+  const activeSym = signal?.symbol || symbol || 'RELIANCE';
+  const sym = getCurrencySymbol(activeSym);
+  const dec = getPrecisionForSymbol(activeSym, signal?.entry_price);
   const isBuy = signal.signal === 'BUY';
   const isOutOfRange = (isBuy && signal.entry_price <= signal.stop_loss) || (!isBuy && signal.entry_price >= signal.stop_loss);
   const qty = 1;
-  const totalInvestment = (qty * signal.entry_price).toFixed(2);
-  const maxRiskRupees = (qty * Math.abs(signal.entry_price - signal.stop_loss)).toFixed(2);
-  const targetProfitRupees = (qty * Math.abs(signal.target - signal.entry_price)).toFixed(2);
+  const totalInvestment = (qty * signal.entry_price).toFixed(dec);
+  const maxRiskAmount = (qty * Math.abs(signal.entry_price - signal.stop_loss)).toFixed(dec);
+  const targetProfitAmount = (qty * Math.abs(signal.target - signal.entry_price)).toFixed(dec);
 
   const handlePlaceDirectOrder = async () => {
     setExecuting(true);
@@ -130,12 +134,12 @@ export const SignalCard: React.FC<Props> = ({
 
       if (result.success) {
         const filledQty = result.data?.quantity ?? qty;
-        const filledPrice = Number(result.data?.price ?? signal.entry_price).toFixed(2);
-        const sl = signal.stop_loss.toFixed(2);
-        const tgt = signal.target.toFixed(2);
+        const filledPrice = Number(result.data?.price ?? signal.entry_price).toFixed(dec);
+        const sl = signal.stop_loss.toFixed(dec);
+        const tgt = signal.target.toFixed(dec);
         setFeedback({
           type: 'success',
-          message: `✓ Trade Successful! Filled ${filledQty} ${Number(filledQty) === 1 ? 'share' : 'shares'} @ ₹${filledPrice} (SL: ₹${sl}, Target: ₹${tgt} · ${effectiveWindow}m Window)`,
+          message: `✓ Trade Successful! Filled ${filledQty} ${Number(filledQty) === 1 ? 'unit' : 'units'} @ ${sym}${filledPrice} (SL: ${sym}${sl}, Target: ${sym}${tgt} · ${effectiveWindow}m Window)`,
           orderId: result.data?.order_id
         });
       } else {
@@ -231,12 +235,12 @@ export const SignalCard: React.FC<Props> = ({
                 }`}
               >
                 {isBuy
-                  ? `RECOMMENDED ACTION: BUY ${qty} SHARE (Target: +₹${targetProfitRupees} · ${effectiveWindow}m Window)`
-                  : `RECOMMENDED ACTION: SELL ${qty} SHARE (Target: +₹${targetProfitRupees} · ${effectiveWindow}m Window)`}
+                  ? `RECOMMENDED ACTION: BUY ${qty} UNIT (Target: +${sym}${targetProfitAmount} · ${effectiveWindow}m Window)`
+                  : `RECOMMENDED ACTION: SELL ${qty} UNIT (Target: +${sym}${targetProfitAmount} · ${effectiveWindow}m Window)`}
               </div>
             </div>
             <div className="text-xs font-semibold text-slate-300 sm:text-right">
-              <span className="text-slate-400">Target Entry:</span> ₹{signal.entry_price.toFixed(2)}
+              <span className="text-slate-400">Target Entry:</span> {sym}{signal.entry_price.toFixed(dec)}
             </div>
           </div>
 
@@ -254,20 +258,20 @@ export const SignalCard: React.FC<Props> = ({
         <div className="mt-3.5 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-sm">
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
             <div className="text-[11px] text-slate-400 font-medium">Entry</div>
-            <div className="text-sm sm:text-base font-bold text-white mt-0.5">₹{signal.entry_price.toFixed(2)}</div>
+            <div className="text-sm sm:text-base font-bold text-white mt-0.5">{sym}{signal.entry_price.toFixed(dec)}</div>
           </div>
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
             <div className="text-[11px] text-slate-400 font-medium">Stop Loss</div>
-            <div className="text-xs sm:text-sm font-bold text-rose-400 mt-0.5">₹{signal.stop_loss.toFixed(2)} (-₹{maxRiskRupees})</div>
+            <div className="text-xs sm:text-sm font-bold text-rose-400 mt-0.5">{sym}{signal.stop_loss.toFixed(dec)} (-{sym}{maxRiskAmount})</div>
           </div>
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
             <div className="text-[11px] text-slate-400 font-medium">Target</div>
-            <div className="text-xs sm:text-sm font-bold text-emerald-400 mt-0.5">₹{signal.target.toFixed(2)} (+₹{targetProfitRupees})</div>
+            <div className="text-xs sm:text-sm font-bold text-emerald-400 mt-0.5">{sym}{signal.target.toFixed(dec)} (+{sym}{targetProfitAmount})</div>
           </div>
           <div className="rounded-lg bg-dark-900/70 p-2.5 border border-dark-700/60">
             <div className="text-[11px] text-slate-400 font-medium">Allocation</div>
             <div className="text-xs sm:text-sm font-bold text-yellow-400 mt-0.5">
-              ₹{totalInvestment} (Risk: ₹{maxRiskRupees})
+              {sym}{totalInvestment} (Risk: {sym}{maxRiskAmount})
             </div>
           </div>
         </div>
@@ -336,8 +340,8 @@ export const SignalCard: React.FC<Props> = ({
               : executing
               ? 'EXECUTING ORDER...'
               : isBuy
-              ? `⚡ PLACE ORDER (BUY ${qty} SHARE · ₹${totalInvestment})`
-              : `⚡ PLACE ORDER (SELL ${qty} SHARE · ₹${totalInvestment})`}
+              ? `⚡ PLACE ORDER (BUY ${qty} UNIT · ${sym}${totalInvestment})`
+              : `⚡ PLACE ORDER (SELL ${qty} UNIT · ${sym}${totalInvestment})`}
           </span>
         </button>
 

@@ -3,6 +3,7 @@ import { PositionData, TradeData, TradeAutopsyData, AdaptiveShieldData } from '.
 import { api } from '../../services/api';
 import { TradeAutopsyModal } from './TradeAutopsyModal';
 import { TrendingUp, TrendingDown, Layers, Zap, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { getCurrencySymbol, getPrecisionForSymbol, isForexSymbol } from '../../utils/currency';
 
 interface Props {
   positions: PositionData[];
@@ -107,9 +108,9 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                 {positions.map(p => {
                   const isProfit = (p.unrealized_pnl ?? 0) >= 0;
                   const windowStatus = getWindowStatus(p.entry_time, p.window_minutes || 30);
-                  const isForex = p.symbol.includes('USD') || p.symbol.includes('EUR') || p.symbol.includes('GBP');
-                  const prefix = isForex ? (p.symbol.includes('INR') ? '₹' : '') : '₹';
-                  const dec = isForex ? 4 : 2;
+                  const isForex = isForexSymbol(p.symbol);
+                  const prefix = getCurrencySymbol(p.symbol);
+                  const dec = getPrecisionForSymbol(p.symbol, p.average_price);
                   const isRelease = p.health_status === 'RELEASE_STOCK';
                   const isWarning = p.health_status === 'WARNING';
                   return (
@@ -286,12 +287,14 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
               <tbody className="divide-y divide-dark-700/50">
                 {trades.slice(0, 10).map(t => {
                   const isProfit = t.pnl >= 0;
+                  const tSym = getCurrencySymbol(t.symbol);
+                  const tDec = getPrecisionForSymbol(t.symbol, t.entry_price);
                   return (
                     <tr key={t.id} className="hover:bg-dark-700/30">
                       <td className="py-2 font-bold text-white">{t.symbol}</td>
                       <td className="py-2 font-medium">{t.quantity}</td>
-                      <td className="py-2 text-slate-300">₹{t.entry_price.toFixed(2)}</td>
-                      <td className="py-2 text-slate-300">₹{t.exit_price?.toFixed(2) || '—'}</td>
+                      <td className="py-2 text-slate-300">{tSym}{t.entry_price.toFixed(tDec)}</td>
+                      <td className="py-2 text-slate-300">{t.exit_price !== undefined && t.exit_price !== null ? `${tSym}${t.exit_price.toFixed(tDec)}` : '—'}</td>
                       <td className={`py-2 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>
                         {isProfit ? '+' : ''}₹{t.pnl.toFixed(2)} ({isProfit ? '+' : ''}{t.pnl_percentage}%)
                       </td>

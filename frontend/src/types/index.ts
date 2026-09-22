@@ -204,7 +204,7 @@ export interface DayBreakoutData {
 export interface WatchlistQuote {
   symbol: string;
   name?: string;
-  market: 'NSE' | 'FOREX';
+  market: 'NSE' | 'FOREX' | 'CRYPTO';
   price: number;
   change?: number;
   change_percentage: number;
@@ -260,7 +260,7 @@ export interface ScannerSummary {
 }
 
 export interface MarketTradingStatus {
-  market: 'NSE' | 'FOREX';
+  market: 'NSE' | 'FOREX' | 'CRYPTO';
   is_open: boolean;
   status: 'OPEN' | 'CLOSED';
   current_time_ist: string;

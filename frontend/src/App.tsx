@@ -1,7 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from './services/api';
 import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus } from './types';
-import { getNSEMarketStatus } from './utils/marketHours';
+import { getNSEMarketStatus, getMarketStatusForSymbol } from './utils/marketHours';
+import { getPrecisionForSymbol, getCurrencySymbol, formatPrice } from './utils/currency';
 import { CandlestickChart } from './components/charts/CandlestickChart';
 import { PortfolioCard } from './components/dashboard/PortfolioCard';
 import { SignalCard } from './components/dashboard/SignalCard';
@@ -19,6 +20,11 @@ import {
 
 export default function App() {
   const [symbol, setSymbol] = useState('RELIANCE');
+  const symbolRef = useRef<string>(symbol);
+  useEffect(() => {
+    symbolRef.current = symbol;
+  }, [symbol]);
+
   const [candles, setCandles] = useState<CandleData[]>([]);
   const [portfolio, setPortfolio] = useState<PortfolioData | null>(null);
   const [positions, setPositions] = useState<PositionData[]>([]);
@@ -50,21 +56,21 @@ export default function App() {
   const [simRunning, setSimRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(2.0);
   const [marketMode, setMarketMode] = useState<'LIVE' | 'SIMULATOR'>('LIVE');
-  const [marketStatus, setMarketStatus] = useState<MarketTradingStatus>(getNSEMarketStatus());
+  const [marketStatus, setMarketStatus] = useState<MarketTradingStatus>(() => getMarketStatusForSymbol('RELIANCE'));
 
-  // Periodically refresh market status (every 10s)
+  // Periodically refresh market status (every 10s) based on active symbol
   useEffect(() => {
     const refreshMarketStatus = () => {
-      const local = getNSEMarketStatus();
+      const local = getMarketStatusForSymbol(symbol);
       setMarketStatus(local);
-      api.getMarketStatus('NSE').then(res => {
+      api.getMarketStatus(symbol).then(res => {
         if (res) setMarketStatus(res);
       }).catch(() => {});
     };
     refreshMarketStatus();
     const interval = setInterval(refreshMarketStatus, 10000);
     return () => clearInterval(interval);
-  }, []);
+  }, [symbol]);
 
   // Query initial market mode and Zerodha status
   useEffect(() => {
@@ -189,6 +195,11 @@ export default function App() {
             loadPortfolioData();
           }
         } else if (msg.type === 'CANDLE_UPDATE') {
+          // Symbol isolation guard: prevent ticks from other symbols from corrupting the active chart
+          if (msg.symbol && msg.symbol !== symbolRef.current) {
+            return;
+          }
+
           const newCandle: CandleData = {
             timestamp: msg.timestamp,
             open: msg.open,
@@ -277,8 +288,7 @@ export default function App() {
         setActiveSignal(null);
       } else if (quote.action === 'BUY' || quote.action === 'SELL') {
         const p = Number(quote.entry_price || quote.price);
-        const isForex = quote.market === 'FOREX';
-        const dec = isForex ? 4 : 2;
+        const dec = getPrecisionForSymbol(quote.symbol, p);
         const riskAmt =
           quote.max_risk && quote.max_risk > 0
             ? Number(quote.max_risk)
@@ -307,6 +317,13 @@ export default function App() {
     } else {
       setActiveSignal(null);
     }
+
+    // Immediately update market trading status for the new symbol
+    const localStatus = getMarketStatusForSymbol(newSym);
+    setMarketStatus(localStatus);
+    api.getMarketStatus(newSym).then(res => {
+      if (res) setMarketStatus(res);
+    }).catch(() => {});
 
     if (marketMode === 'LIVE') {
       try {
@@ -657,12 +674,12 @@ export default function App() {
                 marketStatus.is_open ? (
                   <span className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-400 border border-rose-500/20">
                     <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                    ● LIVE NSE FEED
+                    ● LIVE {marketStatus.market === 'CRYPTO' ? 'CRYPTO 24/7' : marketStatus.market === 'FOREX' ? 'FOREX 24/5' : 'NSE'} FEED
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-400">
                     <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
-                    ⏸ MARKET CLOSED (NSE)
+                    ⏸ MARKET CLOSED ({marketStatus.market === 'CRYPTO' ? 'CRYPTO 24/7' : marketStatus.market === 'FOREX' ? 'FOREX 24/5' : 'NSE'})
                   </span>
                 )
               ) : (
@@ -699,12 +716,22 @@ export default function App() {
                 <option value="TCS" className="bg-dark-800 text-white">TCS</option>
                 <option value="INFY" className="bg-dark-800 text-white">INFY</option>
                 <option value="HDFCBANK" className="bg-dark-800 text-white">HDFCBANK</option>
+                <option value="ICICIBANK" className="bg-dark-800 text-white">ICICIBANK</option>
+                <option value="SBIN" className="bg-dark-800 text-white">SBIN</option>
+                <option value="BHARTIARTL" className="bg-dark-800 text-white">BHARTIARTL</option>
+                <option value="TATAMOTORS" className="bg-dark-800 text-white">TATAMOTORS</option>
               </optgroup>
-              <optgroup label="🌍 Forex Pairs">
-                <option value="USDINR" className="bg-dark-800 text-white">USDINR (USD/INR)</option>
-                <option value="EURUSD" className="bg-dark-800 text-white">EURUSD (EUR/USD)</option>
-                <option value="GBPUSD" className="bg-dark-800 text-white">GBPUSD (GBP/USD)</option>
-                <option value="EURINR" className="bg-dark-800 text-white">EURINR (EUR/INR)</option>
+              <optgroup label="🌍 Forex, Commodities & Crypto">
+                <option value="USDINR" className="bg-dark-800 text-white">USDINR (USD/INR Spot)</option>
+                <option value="EURUSD" className="bg-dark-800 text-white">EURUSD (EUR/USD Spot)</option>
+                <option value="GBPUSD" className="bg-dark-800 text-white">GBPUSD (GBP/USD Spot)</option>
+                <option value="USDJPY" className="bg-dark-800 text-white">USDJPY (USD/JPY Spot)</option>
+                <option value="EURINR" className="bg-dark-800 text-white">EURINR (EUR/INR Spot)</option>
+                <option value="GBPINR" className="bg-dark-800 text-white">GBPINR (GBP/INR Spot)</option>
+                <option value="AUDUSD" className="bg-dark-800 text-white">AUDUSD (AUD/USD Spot)</option>
+                <option value="USDCHF" className="bg-dark-800 text-white">USDCHF (USD/CHF Spot)</option>
+                <option value="GOLD" className="bg-dark-800 text-white">GOLD (Gold Futures)</option>
+                <option value="BTCUSD" className="bg-dark-800 text-white">BTCUSD (Bitcoin / USD)</option>
               </optgroup>
             </select>
           </div>
@@ -737,12 +764,12 @@ export default function App() {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
-                  🔴 LIVE NSE
+                  🔴 LIVE {marketStatus.market === 'CRYPTO' ? 'CRYPTO' : marketStatus.market === 'FOREX' ? 'FOREX' : 'NSE'}
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full bg-amber-300"></span>
-                  ⏸ LIVE NSE (Closed)
+                  ⏸ LIVE {marketStatus.market === 'CRYPTO' ? 'CRYPTO' : marketStatus.market === 'FOREX' ? 'FOREX' : 'NSE'} (Closed)
                 </>
               )}
             </button>
@@ -758,13 +785,13 @@ export default function App() {
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                   </span>
                   <span className="text-emerald-400 font-bold tracking-wider">LIVE FEED ONLINE</span>
-                  <span className="text-slate-400 text-[11px]">({zerodhaStatus?.is_connected ? 'Zerodha Kite' : 'NSE Intraday'})</span>
+                  <span className="text-slate-400 text-[11px]">({zerodhaStatus?.is_connected ? 'Zerodha Kite' : marketStatus.market === 'CRYPTO' ? '24/7 Global Stream' : marketStatus.market === 'FOREX' ? '24/5 Spot FX' : 'NSE Intraday'})</span>
                 </>
               ) : (
                 <>
                   <span className="h-2 w-2 rounded-full bg-amber-400"></span>
                   <span className="text-amber-400 font-bold tracking-wider">MARKET IS CLOSED</span>
-                  <span className="text-slate-400 text-[11px]">(09:15 - 15:30 IST)</span>
+                  <span className="text-slate-400 text-[11px]">({marketStatus.trading_hours || '09:15 - 15:30 IST'})</span>
                 </>
               )
             ) : (

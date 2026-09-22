@@ -27,25 +27,30 @@ An institutional-grade local desktop/web quantitative analysis, pattern detectio
 7. [Manual Installation Guide](#-manual-installation-guide)
 8. [Configuration & Environment Variables](#-configuration--environment-variables)
 9. [Zerodha Kite Live Market Adapter (Zero-Delay)](#-zerodha-kite-live-market-adapter-zero-delay)
-10. [Institutional High-Win-Rate Scanners & Confluence Engine](#-institutional-high-win-rate-scanners--confluence-engine)
-11. [Automated Trade Autopsy & Adaptive Failure Shield Suite](#-automated-trade-autopsy--adaptive-failure-shield-suite)
-12. [Automated Risk & Bracket Rules](#-automated-risk--bracket-rules)
-13. [API & WebSocket Reference](#-api--websocket-reference)
-14. [Running Tests](#-running-tests)
-15. [License & Disclaimer](#-license--disclaimer)
+10. [24/5 Forex, Commodities & Crypto Live Streaming Engine](#-245-forex-commodities--crypto-live-streaming-engine)
+11. [Institutional High-Win-Rate Scanners & Confluence Engine](#-institutional-high-win-rate-scanners--confluence-engine)
+12. [Automated Trade Autopsy & Adaptive Failure Shield Suite](#-automated-trade-autopsy--adaptive-failure-shield-suite)
+13. [Automated Risk & Bracket Rules](#-automated-risk--bracket-rules)
+14. [API & WebSocket Reference](#-api--websocket-reference)
+15. [Running Tests](#-running-tests)
+16. [License & Disclaimer](#-license--disclaimer)
 
 ---
 
 ## ✨ Key Features
 
-- 🇮🇳 **Live NSE & Multi-Asset Scanner**: Real-time intraday monitoring across top Indian equities (`RELIANCE`, `TCS`, `INFY`, `HDFCBANK`) and Forex currency pairs (`USDINR`, `EURUSD`, `GBPUSD`, `EURINR`) with 5-second asynchronous updates.
+- 🇮🇳 **Live NSE & Multi-Asset Scanner**: Real-time intraday monitoring across top Indian equities (`RELIANCE`, `TCS`, `INFY`, `HDFCBANK`, `ICICIBANK`, `SBIN`, `BHARTIARTL`, `TATAMOTORS`) and 10 Global Forex / Commodity / Crypto instruments (`USDINR`, `EURUSD`, `GBPUSD`, `USDJPY`, `EURINR`, `GBPINR`, `AUDUSD`, `USDCHF`, `GOLD`, `BTCUSD`) with 5-second asynchronous updates.
+- 🌍 **24/5 Global Forex & 24/7 Crypto Live Streaming**: Real-time continuous live quote streaming for Global FX (Monday 02:30 IST to Saturday 02:30 IST non-stop) and Crypto (24/7 non-stop) with dynamic `● FOREX 24/5 LIVE` and `● CRYPTO 24/7 LIVE` status badges.
+- ⚡ **OTC Volatility Expansion Tick Volume Proxy**: Overcomes the zero-volume limitation of OTC spot currency pairs by synthesizing tick-volume from normalized candle range volatility ($\frac{\text{Range}}{\text{ATR}_{20}} \times 1000$). Dynamically unlocks VWAP, Volume SMAs, volume surge filters, and BreakoutStrategy algorithms for Forex.
+- 💱 **Multi-Currency & Precision Engine**: Accurate native currency symbols (`$`, `€`, `£`, `¥`, `₹`, `CHF `) with 4-decimal precision for spot currency pairs and 2-decimal precision for Equities, Gold, and Crypto.
+- 🛡️ **Cross-Symbol Chart Isolation**: Strict WebSocket tick routing preventing price candle contamination when switching between NSE stocks (e.g. ₹2,985) and Forex currency pairs (e.g. 1.1468).
 - ⚡ **Zerodha Kite Zero-Delay Adapter**: Connect via your existing Zerodha Kite credentials using either the **free Web Enctoken** (no ₹2,000/month API fee required) or official Kite Connect API key.
 - 📊 **TradingView Lightweight Charts**: Smooth 60fps candlestick rendering with volume buying/selling pressure histograms, EMA(20), EMA(50), and VWAP overlays aligned to **Indian Standard Time (IST, UTC+5:30)**.
 - 🧠 **Structured AI Analysis (Pydantic JSON)**: Strict schema-enforced technical validations powered by OpenAI (`gpt-4o-mini`), Anthropic Claude (`claude-3-5-haiku`), or built-in local quantitative heuristics.
 - 🛡️ **Deterministic Bracket Automation**:
-  - Auto Stop-Loss and Scalp Target (0.4%–0.6%) limit cross detections.
+  - Auto Stop-Loss and Scalp Target limit cross detections.
   - **Trailing Breakeven Lock**: Stop-loss automatically trails to entry price once a trade crosses +0.3% unrealized profit.
-  - **10-Minute Window Expiry**: Intraday scalp trades auto-exit at market price if held $\ge$ 10 minutes, complete with real-time countdown timers.
+  - **Holding Window Expiry**: Intraday scalp trades auto-exit at market price if held $\ge$ holding window (30m base / 45m swing / 60m trend ride).
 - 🎮 **Historical Market Simulator**: Replay multi-day 5-minute historical datasets with variable speed controls (`1x`, `2x`, `5x`, `10x`, `50x`), Play, Pause, Stop, and Reset.
 - 📈 **Look-Ahead Bias-Free Backtester**: Walk-forward backtesting engine calculating Win Rate, Profit Factor, Max Drawdown, Sharpe Ratio, and trade logs.
 
@@ -310,6 +315,43 @@ Once connected:
 
 ---
 
+## 🌍 24/5 Forex, Commodities & Crypto Live Streaming Engine
+
+The platform features an institutional-grade multi-asset live market engine supporting 10 global currency pairs, precious metals, and cryptocurrency non-stop:
+
+| Symbol | Name | Exchange / Market | Decimals | Trading Hours (IST) |
+|---|---|---|---|---|
+| `USDINR` | USD / INR Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `EURUSD` | EUR / USD Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `GBPUSD` | GBP / USD Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `USDJPY` | USD / JPY Spot | FOREX (Interbank) | 2 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `EURINR` | EUR / INR Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `GBPINR` | GBP / INR Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `AUDUSD` | AUD / USD Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `USDCHF` | USD / CHF Spot | FOREX (Interbank) | 4 | Mon 02:30 AM – Sat 02:30 AM (24/5) |
+| `GOLD` | Gold Futures (`GC=F`) | COMEX / Globex | 2 | Mon 03:30 AM – Sat 02:30 AM (23/5) |
+| `BTCUSD` | Bitcoin / USD | CRYPTO (Global) | 2 | **24/7 Non-Stop (365 Days)** |
+
+### 1. OTC Synthetic Volatility Tick Volume Proxy
+- **The Zero-Volume Challenge**: Because spot foreign exchange (Forex) is traded over-the-counter (OTC) across decentralized global banks rather than a centralized exchange floor, retail market data feeds (such as Yahoo Finance spot FX) report `volume == 0`.
+- **The Solution**: In `backend/data/live_market_service.py`, our engine synthesizes a normalized proxy tick-volume using candle range expansion:
+  $$\text{Proxy Volume} = \max\left(100.0, \frac{\text{High} - \text{Low}}{\text{ATR}_{20}(\text{Range})} \times 1000.0\right)$$
+- **Why this Matters**: Standard technical indicators (VWAP, Volume Moving Averages, Volume Surges, and volume-confirmed breakout strategies) fail completely when volume is zero. By proxying tick volume from normalized range volatility, institutional VWAP support/resistance and strategy triggers operate dynamically on Forex instruments!
+
+### 2. Multi-Currency Formatting & Sub-Cent Precision
+- Spot FX pairs operate with **4-decimal pip precision** (e.g. EURUSD at `1.1468`, USDINR at `83.5250`).
+- Equities, Gold, and Bitcoin operate with **2-decimal precision** (e.g. RELIANCE at `₹1,240.40`, GOLD at `$4,378.40`, BTCUSD at `$86,020.00`).
+- The dashboard automatically renders native currency symbols (`$`, `€`, `£`, `¥`, `₹`, `CHF `) across all order execution tickets, signal cards, position tables, and live charts.
+
+### 3. Cross-Symbol WebSocket Isolation
+- In multi-asset environments, WebSocket tick listeners enforce strict symbol isolation guards:
+  ```typescript
+  if (msg.symbol && msg.symbol !== activeSymbol) return;
+  ```
+- Prevents cross-asset candle contamination when toggling between equities (e.g. ₹1,240) and FX pairs (e.g. 1.1468).
+
+---
+
 ## 🎯 Institutional High-Win-Rate Scanners & Confluence Engine
 
 The platform features an algorithmic scanner engine located in `backend/data/scanner_engine.py` and visualized in the frontend Multi-Asset Watchlist cockpit. These scanners filter out retail chop and isolate high-probability institutional momentum setups.
@@ -440,7 +482,7 @@ source venv/bin/activate
 PYTHONPATH=. pytest tests/test_trading_system.py -v
 ```
 
-All **63 tests** pass 100%.
+All **67 tests** pass 100%.
 
 To verify the frontend TypeScript build:
 ```bash

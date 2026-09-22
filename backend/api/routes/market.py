@@ -118,7 +118,7 @@ async def set_market_mode(
 
 
 @router.get("/market/watchlist")
-def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,USDINR,EURUSD")):
+def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,ICICIBANK,SBIN,BHARTIARTL,TATAMOTORS,USDINR,EURUSD,GBPUSD,USDJPY,EURINR,GBPINR,AUDUSD,USDCHF,GOLD,BTCUSD")):
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     return live_service.get_watchlist_quotes(symbol_list)
 
@@ -131,9 +131,14 @@ def get_scanners(symbols: Optional[str] = Query(None)):
 
 
 @router.get("/market/status")
-def get_market_session_status(category: str = "NSE"):
+def get_market_session_status(
+    category: Optional[str] = Query(None),
+    market: Optional[str] = Query(None),
+    symbol: Optional[str] = Query(None)
+):
     """Get real-time exchange trading status (OPEN / CLOSED) and trading hours."""
-    return get_market_trading_status(category)
+    target = symbol or market or category or "NSE"
+    return get_market_trading_status(target)
 
 
 
@@ -153,16 +158,18 @@ def get_market_overview(symbol: str, db: Session = Depends(get_db)):
                 prev = live_candles[-2] if len(live_candles) > 1 else curr
                 c_change = curr["close"] - prev["close"]
                 c_pct = (c_change / prev["close"] * 100.0) if prev["close"] > 0 else 0.0
+                is_forex = get_market_category(symbol) == "FOREX"
+                dec = 4 if is_forex else 2
                 return {
                     "symbol": symbol,
-                    "company_name": symbol,
-                    "exchange": "NSE",
-                    "price": round(curr["close"], 2),
-                    "change": round(c_change, 2),
+                    "company_name": SYMBOL_NAMES.get(symbol.upper(), symbol),
+                    "exchange": "FOREX" if is_forex else "NSE",
+                    "price": round(curr["close"], dec),
+                    "change": round(c_change, dec),
                     "change_percentage": round(c_pct, 2),
-                    "open": round(curr["open"], 2),
-                    "high": round(curr["high"], 2),
-                    "low": round(curr["low"], 2),
+                    "open": round(curr["open"], dec),
+                    "high": round(curr["high"], dec),
+                    "low": round(curr["low"], dec),
                     "volume": curr["volume"],
                     "timestamp": str(curr["timestamp"])
                 }

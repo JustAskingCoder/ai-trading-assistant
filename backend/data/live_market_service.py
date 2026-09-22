@@ -52,13 +52,15 @@ SYMBOL_MAP = {
     "EURINR": "EURINR=X",
     "GBPINR": "GBPINR=X",
     "AUDUSD": "AUDUSD=X",
+    "USDCHF": "CHF=X",
     "GOLD": "GC=F",
     "BTCUSD": "BTC-USD",
 }
 
 FOREX_SYMBOLS = {
-    "USDINR", "EURUSD", "GBPUSD", "USDJPY", "EURINR", "GBPINR", "AUDUSD",
-    "GOLD", "BTCUSD", "GC=F", "BTC-USD", "JPY=X"
+    "USDINR", "EURUSD", "GBPUSD", "USDJPY", "EURINR", "GBPINR", "AUDUSD", "USDCHF",
+    "GOLD", "BTCUSD", "GC=F", "BTC-USD", "JPY=X", "CHF=X", "USDINR=X", "EURUSD=X",
+    "GBPUSD=X", "EURINR=X", "GBPINR=X", "AUDUSD=X"
 }
 
 SYMBOL_NAMES = {
@@ -85,6 +87,7 @@ SYMBOL_NAMES = {
     "EURINR": "EUR / INR",
     "GBPINR": "GBP / INR",
     "AUDUSD": "AUD / USD",
+    "USDCHF": "USD / CHF",
     "GOLD": "Gold Futures",
     "BTCUSD": "Bitcoin / USD",
 }
@@ -94,7 +97,7 @@ def get_market_category(symbol: str) -> str:
     """Classify symbol into 'NSE' or 'FOREX'."""
     clean = symbol.strip().upper().replace("/", "").replace(" ", "").replace("_", "")
     yf = to_yf_symbol(symbol)
-    if clean in FOREX_SYMBOLS or "=X" in yf or yf in ["GC=F", "BTC-USD"] or "-USD" in yf:
+    if clean in FOREX_SYMBOLS or "=X" in yf or yf in ["GC=F", "BTC-USD", "CHF=X", "JPY=X"] or "-USD" in yf:
         return "FOREX"
     return "NSE"
 
@@ -116,13 +119,30 @@ def get_market_trading_status(symbol_or_market: str = "NSE") -> Dict[str, Any]:
     """
     Evaluates real-time trading status (OPEN / CLOSED) based on IST exchange hours.
     NSE Equities: Monday to Friday, 09:15 - 15:30 IST.
-    Forex: Monday 02:30 IST to Saturday 02:30 IST (24/5).
+    Forex: Monday 02:30 IST to Saturday 02:30 IST (24/5 non-stop).
+    Crypto: 24/7 non-stop (always OPEN).
     """
-    cat = get_market_category(symbol_or_market) if symbol_or_market not in ["NSE", "FOREX"] else symbol_or_market
+    clean = symbol_or_market.strip().upper().replace("/", "").replace(" ", "").replace("_", "")
     ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
-    weekday = ist_now.weekday()  # 0 = Monday, 6 = Sunday
+    weekday = ist_now.weekday()  # 0 = Monday, ..., 5 = Saturday, 6 = Sunday
     t = ist_now.time()
 
+    # 1. 24/7 Crypto check
+    if clean in ["BTCUSD", "BTC-USD", "BTC", "CRYPTO"]:
+        return {
+            "market": "CRYPTO",
+            "is_open": True,
+            "status": "OPEN",
+            "current_time_ist": ist_now.strftime("%H:%M:%S IST"),
+            "trading_hours": "24/7 Non-Stop",
+            "message": "Crypto Market is Open (24/7 Non-Stop)",
+            "reason": "Global 24/7 Decentralized Trading",
+            "next_open": None
+        }
+
+    cat = get_market_category(symbol_or_market) if symbol_or_market not in ["NSE", "FOREX"] else symbol_or_market
+
+    # 2. 24/5 Forex check
     if cat == "FOREX":
         # Forex operates 24/5: Opens Monday ~02:30 IST, Closes Saturday ~02:30 IST
         is_open = True
@@ -140,7 +160,8 @@ def get_market_trading_status(symbol_or_market: str = "NSE") -> Dict[str, Any]:
             "status": status,
             "current_time_ist": ist_now.strftime("%H:%M:%S IST"),
             "trading_hours": "24/5 (Mon 02:30 - Sat 02:30 IST)",
-            "message": "Forex Market is Open" if is_open else "Forex Market is Closed for the Weekend",
+            "message": "Forex 24/5 Market is Open" if is_open else "Forex Market is Closed for the Weekend",
+            "reason": "Global 24/5 Interbank Session" if is_open else "Closed for the Weekend",
             "next_open": "Monday 02:30 AM IST" if not is_open else None
         }
     else:
@@ -261,6 +282,20 @@ class LiveMarketService:
                 df[col] = df[col].astype(float)
             else:
                 df[col] = 0.0
+
+        # Synthetic proxy tick volume for Forex / OTC markets where exchange volume is 0
+        vol_sum = df["volume"].sum() if "volume" in df.columns else 0.0
+        if vol_sum == 0.0 or get_market_category(symbol) == "FOREX":
+            if vol_sum == 0.0:
+                import numpy as np
+                high_vals = df["high"].values
+                low_vals = df["low"].values
+                close_vals = df["close"].values
+                rng = np.maximum(high_vals - low_vals, close_vals * 0.0001)
+                s_rng = pd.Series(rng)
+                avg_rng = s_rng.rolling(14, min_periods=1).mean().values
+                norm_rng = rng / np.maximum(avg_rng, 1e-6)
+                df["volume"] = np.maximum(100.0, np.round(norm_rng * 1000.0, 1))
 
         df["timestamp"] = df["timestamp"].astype(str)
         df["symbol"] = symbol.upper()
@@ -585,6 +620,20 @@ class LiveMarketService:
                 else:
                     df[col] = 0.0
 
+            # Synthetic proxy tick volume for Forex / OTC markets where exchange volume is 0
+            vol_sum = df["volume"].sum() if "volume" in df.columns else 0.0
+            if vol_sum == 0.0 or is_forex:
+                if vol_sum == 0.0:
+                    import numpy as np
+                    high_vals = df["high"].values
+                    low_vals = df["low"].values
+                    close_vals = df["close"].values
+                    rng = np.maximum(high_vals - low_vals, close_vals * 0.0001)
+                    s_rng = pd.Series(rng)
+                    avg_rng = s_rng.rolling(14, min_periods=1).mean().values
+                    norm_rng = rng / np.maximum(avg_rng, 1e-6)
+                    df["volume"] = np.maximum(100.0, np.round(norm_rng * 1000.0, 1))
+
             df["timestamp"] = df["timestamp"].astype(str)
             df["symbol"] = clean_sym
 
@@ -622,9 +671,10 @@ class LiveMarketService:
             quantity = 1
             min_step = 0.0001 if is_forex else 0.05
 
-            # Structural brackets calibrated for Intraday/Swing trading (min 1.0% stop-loss buffer, 1.5% target)
-            structural_risk = max(close_p * 0.010, 2.0 * atr)
-            structural_reward = max(structural_risk * 1.5, close_p * 0.015)
+            # Structural brackets calibrated for Intraday/Swing trading
+            # For Forex: typical spread & ATR is smaller, ensure precision and proportional risk
+            structural_risk = max(close_p * (0.004 if is_forex else 0.010), 1.5 * atr)
+            structural_reward = max(structural_risk * 1.5, close_p * (0.006 if is_forex else 0.015))
 
             if signal == "BUY":
                 action = "BUY"
@@ -884,7 +934,8 @@ class LiveMarketService:
         """
         target_symbols = symbols or [
             "RELIANCE", "TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN",
-            "BHARTIARTL", "TATAMOTORS", "USDINR", "EURUSD"
+            "BHARTIARTL", "TATAMOTORS", "USDINR", "EURUSD", "GBPUSD",
+            "USDJPY", "EURINR", "GBPINR", "AUDUSD", "USDCHF", "GOLD", "BTCUSD"
         ]
         quotes = self.get_watchlist_quotes(target_symbols)
 

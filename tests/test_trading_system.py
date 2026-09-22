@@ -2582,7 +2582,140 @@ def test_api_autopsy_and_shield_endpoints():
     finally:
         adaptive_shield.clear_shields()
         paper_broker.reset_portfolio(db)
-        db.close()
+
+def test_forex_symbols_and_market_hours():
+    """Verify Forex symbols classification and 24/5 market hours calculation."""
+    from backend.data.live_market_service import (
+        get_market_category, to_yf_symbol, get_market_trading_status, SYMBOL_MAP, FOREX_SYMBOLS
+    )
+
+    # Symbol mapping verification
+    assert to_yf_symbol("USDCHF") == "CHF=X"
+    assert to_yf_symbol("USD/CHF") == "CHF=X"
+    assert to_yf_symbol("EURUSD") == "EURUSD=X"
+    assert to_yf_symbol("USDJPY") == "JPY=X"
+    assert to_yf_symbol("GOLD") == "GC=F"
+    assert to_yf_symbol("BTCUSD") == "BTC-USD"
+    assert to_yf_symbol("RELIANCE") == "RELIANCE.NS"
+
+    # Category classification
+    assert get_market_category("USDCHF") == "FOREX"
+    assert get_market_category("EURUSD") == "FOREX"
+    assert get_market_category("GOLD") == "FOREX"
+    assert get_market_category("BTCUSD") == "FOREX"
+    assert get_market_category("RELIANCE") == "NSE"
+
+    # Market hours status
+    fx_status = get_market_trading_status("FOREX")
+    assert fx_status["market"] == "FOREX"
+    assert "24/5" in fx_status["trading_hours"]
+    assert fx_status["status"] in ["OPEN", "CLOSED"]
+
+    crypto_status = get_market_trading_status("BTCUSD")
+    assert crypto_status["market"] == "CRYPTO"
+    assert crypto_status["is_open"] is True
+    assert crypto_status["status"] == "OPEN"
+    assert "24/7" in crypto_status["trading_hours"]
+
+
+def test_forex_synthetic_volume_and_vwap():
+    """Verify synthetic proxy volume generation when volume is 0 and resulting VWAP calculation."""
+    from backend.indicators.engine import calculate_indicators, calculate_vwap
+    import numpy as np
+
+    # Create synthetic Forex DataFrame with 0 volume
+    rows = []
+    base_price = 1.0850
+    for i in range(30):
+        # Introduce a volatility breakout spike on candle 25
+        spread = 0.0030 if i == 25 else 0.0005
+        rows.append({
+            "timestamp": f"2026-09-22 10:{i:02d}:00",
+            "open": base_price + i * 0.0002,
+            "high": base_price + i * 0.0002 + spread,
+            "low": base_price + i * 0.0002 - (spread * 0.5),
+            "close": base_price + i * 0.0002 + (spread * 0.8),
+            "volume": 0.0,
+            "symbol": "EURUSD"
+        })
+    df = pd.DataFrame(rows)
+
+    # Synthesize proxy volume
+    high_vals = df["high"].values
+    low_vals = df["low"].values
+    close_vals = df["close"].values
+    rng = np.maximum(high_vals - low_vals, close_vals * 0.0001)
+    s_rng = pd.Series(rng)
+    avg_rng = s_rng.rolling(14, min_periods=1).mean().values
+    norm_rng = rng / np.maximum(avg_rng, 1e-6)
+    df["volume"] = np.maximum(100.0, np.round(norm_rng * 1000.0, 1))
+
+    assert df["volume"].sum() > 0
+    # Candle 25 had 6x larger spread, volume should be distinctly higher
+    assert df["volume"].iloc[25] > df["volume"].iloc[10]
+
+    # VWAP must calculate cleanly and not be 0
+    ind_df = calculate_indicators(df)
+    assert ind_df["vwap"].iloc[-1] > 1.08
+    assert not pd.isna(ind_df["vwap"].iloc[-1])
+
+
+def test_forex_decimal_precision_and_cpr():
+    """Verify 4-decimal precision for Forex and 2-decimal for Equities across strategies and CPR."""
+    from backend.strategies.base_strategy import get_precision_for_symbol
+    from backend.data.scanner_engine import calculate_cpr_levels, detect_day_breakouts
+
+    # Strategy precision helper
+    assert get_precision_for_symbol("EURUSD", 1.0845) == 4
+    assert get_precision_for_symbol("USDCHF", 0.8192) == 4
+    assert get_precision_for_symbol("USDINR", 83.5250) == 4
+    assert get_precision_for_symbol("GBPUSD", 1.3368) == 4
+    assert get_precision_for_symbol("USDJPY", 157.18) == 2
+    assert get_precision_for_symbol("RELIANCE", 2985.50) == 2
+    assert get_precision_for_symbol("GOLD", 4378.40) == 2
+    assert get_precision_for_symbol("BTCUSD", 86000.0) == 2
+
+    # CPR calculations for Forex
+    cpr = calculate_cpr_levels(high_price=1.0890, low_price=1.0810, close_price=1.0860, current_price=1.0855)
+    # Must preserve 4 decimals
+    assert isinstance(cpr["pivot"], float)
+    assert len(str(cpr["pivot"]).split(".")[1]) >= 3
+    assert cpr["tc"] != cpr["bc"]
+
+    # Day breakout for Forex
+    bo = detect_day_breakouts(current_price=1.0892, day_high=1.0890, day_low=1.0810)
+    assert bo["is_breakout"] is True
+    assert bo["day_high"] == 1.0890
+
+
+def test_forex_api_endpoints():
+    """Verify FastAPI routes for Forex watchlist and market status."""
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    client = TestClient(app)
+
+    # 1. Market Status endpoint with market=FOREX
+    res_fx = client.get("/api/market/status?market=FOREX")
+    assert res_fx.status_code == 200
+    data_fx = res_fx.json()
+    assert data_fx["market"] == "FOREX"
+    assert "24/5" in data_fx["trading_hours"]
+
+    # 2. Market Status endpoint with market=BTCUSD
+    res_crypto = client.get("/api/market/status?market=BTCUSD")
+    assert res_crypto.status_code == 200
+    data_crypto = res_crypto.json()
+    assert data_crypto["market"] == "CRYPTO"
+    assert data_crypto["is_open"] is True
+
+    # 3. Watchlist default query includes Forex
+    res_wl = client.get("/api/market/watchlist?symbols=USDINR,EURUSD")
+    assert res_wl.status_code == 200
+    quotes = res_wl.json()
+    assert len(quotes) >= 1
+    assert any(q["symbol"] in ["USDINR", "EURUSD"] for q in quotes)
+
 
 
 

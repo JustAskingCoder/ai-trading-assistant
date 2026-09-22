@@ -122,12 +122,16 @@ def calculate_cpr_levels(
     high_price: float,
     low_price: float,
     close_price: float,
-    current_price: Optional[float] = None
+    current_price: Optional[float] = None,
+    dec: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Calculate Central Pivot Range (Pivot, Bottom Central BC, Top Central TC)
     and evaluate Narrow CPR trending potential vs Wide CPR consolidation.
     """
+    if dec is None:
+        dec = 4 if (close_price < 20.0 or (current_price and current_price < 20.0)) else 2
+
     if high_price <= 0 or low_price <= 0 or close_price <= 0:
         return {
             "pivot": 0.0,
@@ -175,11 +179,11 @@ def calculate_cpr_levels(
         price_location = "INSIDE_CPR"
 
     return {
-        "pivot": round(pivot, 2),
-        "tc": round(tc, 2),
-        "bc": round(bc, 2),
-        "lower_boundary": round(lower_cpr, 2),
-        "upper_boundary": round(upper_cpr, 2),
+        "pivot": round(pivot, dec),
+        "tc": round(tc, dec),
+        "bc": round(bc, dec),
+        "lower_boundary": round(lower_cpr, dec),
+        "upper_boundary": round(upper_cpr, dec),
         "width_pct": round(width_pct, 3),
         "cpr_type": cpr_type,
         "price_location": price_location,
@@ -192,11 +196,15 @@ def detect_day_breakouts(
     current_price: float,
     day_high: float,
     day_low: float,
-    is_volume_expanding: bool = False
+    is_volume_expanding: bool = False,
+    dec: Optional[int] = None
 ) -> Dict[str, Any]:
     """
     Detect Day's High Breakout or Day's Low Breakdown.
     """
+    if dec is None:
+        dec = 4 if current_price < 20.0 else 2
+
     if day_high <= 0 or day_low <= 0 or current_price <= 0:
         return {
             "is_breakout": False,
@@ -220,8 +228,8 @@ def detect_day_breakouts(
         "is_breakout": is_breakout,
         "is_breakdown": is_breakdown,
         "label": label,
-        "day_high": round(day_high, 2),
-        "day_low": round(day_low, 2)
+        "day_high": round(day_high, dec),
+        "day_low": round(day_low, dec)
     }
 
 
@@ -261,6 +269,7 @@ def analyze_high_win_rate_scanners(
     cur_close = float(last_candle["close"])
     cur_open = float(last_candle["open"])
     cur_p = current_price if current_price is not None else cur_close
+    dec = 4 if cur_p < 20.0 else 2
 
     # Intraday range
     day_open = float(first_candle["open"])
@@ -283,10 +292,10 @@ def analyze_high_win_rate_scanners(
     )
 
     # 3. CPR Analysis
-    cpr_res = calculate_cpr_levels(day_high, day_low, day_close, cur_p)
+    cpr_res = calculate_cpr_levels(day_high, day_low, day_close, cur_p, dec=dec)
 
     # 4. Day Breakout Analysis
-    bo_res = detect_day_breakouts(cur_p, day_high, day_low, is_volume_expanding=vol_res["is_surge"])
+    bo_res = detect_day_breakouts(cur_p, day_high, day_low, is_volume_expanding=vol_res["is_surge"], dec=dec)
 
     # 5. Multi-factor Confluence Scoring
     bullish_pts = 0

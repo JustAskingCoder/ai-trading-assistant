@@ -15,6 +15,20 @@ class BaseStrategy(ABC):
         pass
 
 
+def get_precision_for_symbol(symbol: str, price: float = 0.0) -> int:
+    """Determine decimal precision: 4 for Forex/micro-pairs, 2 for Equities/Gold/Crypto."""
+    clean = str(symbol).upper().replace("/", "").replace(" ", "").replace("_", "")
+    if clean in ["BTCUSD", "BTC-USD", "BTC", "ETHUSD", "GOLD", "GC=F"]:
+        return 2
+    if any(fx in clean for fx in ["USD", "EUR", "GBP", "JPY", "INR", "AUD", "CHF", "CAD", "=X"]) and not clean.endswith(".NS"):
+        if clean in ["JPY", "USDJPY", "JPY=X"]:
+            return 2
+        return 4
+    if 0.0 < price < 20.0:
+        return 4
+    return 2
+
+
 def validate_pattern_alignment(patterns: list, proposed_side: str) -> tuple[bool, float, str]:
     """
     Validates that detected price action and technical patterns do not conflict with proposed trade direction,
@@ -63,13 +77,13 @@ class BreakoutStrategy(BaseStrategy):
     Breakout Strategy:
     BUY when:
     - Price breaks 20-period resistance (close > resistance, prev_close <= resistance)
-    - Volume > 1.2x Volume SMA
+    - Volume > 1.2x Volume SMA (or ATR range expansion for Forex OTC)
     - EMA20 > EMA50
     - RSI between 48 and 68 (prevent buying overbought)
     - Price within 1.2% of EMA20
     SELL when:
     - Price breaks 20-period support (close < support, prev_close >= support)
-    - Volume > 1.2x Volume SMA
+    - Volume > 1.2x Volume SMA (or ATR range expansion for Forex OTC)
     - EMA20 < EMA50
     - RSI between 32 and 52 (prevent shorting oversold)
     - Price within 1.2% of EMA20
@@ -85,6 +99,9 @@ class BreakoutStrategy(BaseStrategy):
         prev = df.iloc[idx - 1]
         close = curr["close"]
         prev_close = prev["close"]
+        sym_str = str(curr.get("symbol", "UNKNOWN"))
+        dec = get_precision_for_symbol(sym_str, close)
+        is_forex = (dec == 4)
 
         # Window for resistance / support
         window = df.iloc[max(0, idx - 21):idx]
@@ -110,12 +127,13 @@ class BreakoutStrategy(BaseStrategy):
         c_range = c_high - c_low
         c_body = abs(close - c_open)
         solid_body = (c_body / c_range >= 0.35) if c_range > 0 else True
+        vol_breakout = (vol > 1.2 * vol_sma) if (vol_sma > 0 and not is_forex) else (vol > 1.1 * vol_sma or c_range >= 1.2 * atr)
 
         # Bullish Breakout BUY
         if (
             close > resistance and
             prev_close <= resistance and
-            vol > 1.2 * vol_sma and
+            vol_breakout and
             solid_body and
             ema20 is not None and ema50 is not None and pd.notnull(ema20) and pd.notnull(ema50) and ema20 > ema50 and
             rsi is not None and pd.notnull(rsi) and 48.0 <= rsi <= 68.0 and
@@ -126,29 +144,32 @@ class BreakoutStrategy(BaseStrategy):
             if not approved:
                 return None
 
-            risk_buffer = max(2.0 * atr, close * 0.010)
-            reward_buffer = max(3.0 * atr, close * 0.015)
-            target = round(close + reward_buffer, 2)
-            sl_candidate = round(support - 0.5 * atr, 2) if (support is not None and pd.notnull(support)) else None
-            if sl_candidate is not None and sl_candidate < close and (close - sl_candidate) >= (close * 0.008):
+            risk_buffer = max(1.5 * atr, close * (0.004 if is_forex else 0.010))
+            reward_buffer = max(2.5 * atr, close * (0.006 if is_forex else 0.015))
+            target = round(close + reward_buffer, dec)
+            sl_candidate = round(support - 0.5 * atr, dec) if (support is not None and pd.notnull(support)) else None
+            min_risk_pct = 0.003 if is_forex else 0.008
+            if sl_candidate is not None and sl_candidate < close and (close - sl_candidate) >= (close * min_risk_pct):
                 stop_loss = sl_candidate
             else:
-                stop_loss = round(close - risk_buffer, 2)
+                stop_loss = round(close - risk_buffer, dec)
 
             risk = close - stop_loss
             risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
             confidence = min(0.95, max(0.70, round(0.82 + conf_delta, 2)))
-            reason_text = f"Resistance breakout above {resistance:.2f} with {vol / vol_sma:.1f}x volume expansion and bullish EMA/RSI"
+            vol_mult = (vol / vol_sma) if vol_sma > 0 else 1.5
+            res_str = f"{resistance:.4f}" if is_forex else f"{resistance:.2f}"
+            reason_text = f"Resistance breakout above {res_str} with {vol_mult:.1f}x volume/volatility expansion and bullish EMA/RSI"
             if annotation:
                 reason_text += f" | {annotation}"
 
             return {
-                "symbol": str(curr.get("symbol", "UNKNOWN")),
+                "symbol": sym_str,
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "BUY",
                 "confidence": confidence,
-                "entry_price": round(close, 2),
+                "entry_price": round(close, dec),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
@@ -157,8 +178,8 @@ class BreakoutStrategy(BaseStrategy):
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
                     "adx": round(adx, 2) if pd.notnull(adx) else None,
-                    "ema20": round(ema20, 2) if pd.notnull(ema20) else None,
-                    "ema50": round(ema50, 2) if pd.notnull(ema50) else None,
+                    "ema20": round(ema20, dec) if pd.notnull(ema20) else None,
+                    "ema50": round(ema50, dec) if pd.notnull(ema50) else None,
                 }
             }
 
@@ -166,7 +187,7 @@ class BreakoutStrategy(BaseStrategy):
         elif (
             close < support and
             prev_close >= support and
-            vol > 1.2 * vol_sma and
+            vol_breakout and
             solid_body and
             ema20 is not None and ema50 is not None and pd.notnull(ema20) and pd.notnull(ema50) and ema20 < ema50 and
             rsi is not None and pd.notnull(rsi) and 32.0 <= rsi <= 52.0 and
@@ -177,29 +198,32 @@ class BreakoutStrategy(BaseStrategy):
             if not approved:
                 return None
 
-            risk_buffer = max(2.0 * atr, close * 0.010)
-            reward_buffer = max(3.0 * atr, close * 0.015)
-            target = round(close - reward_buffer, 2)
-            sl_candidate = round(resistance + 0.5 * atr, 2) if (resistance is not None and pd.notnull(resistance)) else None
-            if sl_candidate is not None and sl_candidate > close and (sl_candidate - close) >= (close * 0.008):
+            risk_buffer = max(1.5 * atr, close * (0.004 if is_forex else 0.010))
+            reward_buffer = max(2.5 * atr, close * (0.006 if is_forex else 0.015))
+            target = round(close - reward_buffer, dec)
+            sl_candidate = round(resistance + 0.5 * atr, dec) if (resistance is not None and pd.notnull(resistance)) else None
+            min_risk_pct = 0.003 if is_forex else 0.008
+            if sl_candidate is not None and sl_candidate > close and (sl_candidate - close) >= (close * min_risk_pct):
                 stop_loss = sl_candidate
             else:
-                stop_loss = round(close + risk_buffer, 2)
+                stop_loss = round(close + risk_buffer, dec)
 
             risk = stop_loss - close
             risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
             confidence = min(0.95, max(0.70, round(0.82 + conf_delta, 2)))
-            reason_text = f"Support breakdown below {support:.2f} with {vol / vol_sma:.1f}x volume expansion and bearish EMA/RSI"
+            vol_mult = (vol / vol_sma) if vol_sma > 0 else 1.5
+            sup_str = f"{support:.4f}" if is_forex else f"{support:.2f}"
+            reason_text = f"Support breakdown below {sup_str} with {vol_mult:.1f}x volume/volatility expansion and bearish EMA/RSI"
             if annotation:
                 reason_text += f" | {annotation}"
 
             return {
-                "symbol": str(curr.get("symbol", "UNKNOWN")),
+                "symbol": sym_str,
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "SELL",
                 "confidence": confidence,
-                "entry_price": round(close, 2),
+                "entry_price": round(close, dec),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
@@ -208,8 +232,8 @@ class BreakoutStrategy(BaseStrategy):
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
                     "adx": round(adx, 2) if pd.notnull(adx) else None,
-                    "ema20": round(ema20, 2) if pd.notnull(ema20) else None,
-                    "ema50": round(ema50, 2) if pd.notnull(ema50) else None,
+                    "ema20": round(ema20, dec) if pd.notnull(ema20) else None,
+                    "ema50": round(ema50, dec) if pd.notnull(ema50) else None,
                 }
             }
 
@@ -240,6 +264,9 @@ class MomentumStrategy(BaseStrategy):
         curr = df.iloc[idx]
         prev = df.iloc[idx - 1]
         close = curr["close"]
+        sym_str = str(curr.get("symbol", "UNKNOWN"))
+        dec = get_precision_for_symbol(sym_str, close)
+        is_forex = (dec == 4)
 
         ema20 = curr.get("ema20")
         ema50 = curr.get("ema50")
@@ -276,10 +303,10 @@ class MomentumStrategy(BaseStrategy):
             if not approved:
                 return None
 
-            risk_buffer = max(2.0 * atr, close * 0.010)
-            reward_buffer = max(3.0 * atr, close * 0.015)
-            stop_loss = round(close - risk_buffer, 2)
-            target = round(close + reward_buffer, 2)
+            risk_buffer = max(1.5 * atr, close * (0.004 if is_forex else 0.010))
+            reward_buffer = max(2.5 * atr, close * (0.006 if is_forex else 0.015))
+            stop_loss = round(close - risk_buffer, dec)
+            target = round(close + reward_buffer, dec)
             risk = close - stop_loss
             risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
             confidence = min(0.95, max(0.70, round(0.78 + conf_delta, 2)))
@@ -288,12 +315,12 @@ class MomentumStrategy(BaseStrategy):
                 reason_text += f" | {annotation}"
 
             return {
-                "symbol": str(curr.get("symbol", "UNKNOWN")),
+                "symbol": sym_str,
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "BUY",
                 "confidence": confidence,
-                "entry_price": round(close, 2),
+                "entry_price": round(close, dec),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
@@ -301,9 +328,9 @@ class MomentumStrategy(BaseStrategy):
                 "patterns": patterns,
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
-                    "macd": round(macd, 2) if pd.notnull(macd) else None,
-                    "ema20": round(ema20, 2) if pd.notnull(ema20) else None,
-                    "ema50": round(ema50, 2) if pd.notnull(ema50) else None,
+                    "macd": round(macd, 4 if is_forex else 2) if pd.notnull(macd) else None,
+                    "ema20": round(ema20, dec) if pd.notnull(ema20) else None,
+                    "ema50": round(ema50, dec) if pd.notnull(ema50) else None,
                 }
             }
 
@@ -325,10 +352,10 @@ class MomentumStrategy(BaseStrategy):
             if not approved:
                 return None
 
-            risk_buffer = max(2.0 * atr, close * 0.010)
-            reward_buffer = max(3.0 * atr, close * 0.015)
-            stop_loss = round(close + risk_buffer, 2)
-            target = round(close - reward_buffer, 2)
+            risk_buffer = max(1.5 * atr, close * (0.004 if is_forex else 0.010))
+            reward_buffer = max(2.5 * atr, close * (0.006 if is_forex else 0.015))
+            stop_loss = round(close + risk_buffer, dec)
+            target = round(close - reward_buffer, dec)
             risk = stop_loss - close
             risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
             confidence = min(0.95, max(0.70, round(0.78 + conf_delta, 2)))
@@ -337,12 +364,12 @@ class MomentumStrategy(BaseStrategy):
                 reason_text += f" | {annotation}"
 
             return {
-                "symbol": str(curr.get("symbol", "UNKNOWN")),
+                "symbol": sym_str,
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "SELL",
                 "confidence": confidence,
-                "entry_price": round(close, 2),
+                "entry_price": round(close, dec),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
@@ -350,9 +377,9 @@ class MomentumStrategy(BaseStrategy):
                 "patterns": patterns,
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
-                    "macd": round(macd, 2) if pd.notnull(macd) else None,
-                    "ema20": round(ema20, 2) if pd.notnull(ema20) else None,
-                    "ema50": round(ema50, 2) if pd.notnull(ema50) else None,
+                    "macd": round(macd, 4 if is_forex else 2) if pd.notnull(macd) else None,
+                    "ema20": round(ema20, dec) if pd.notnull(ema20) else None,
+                    "ema50": round(ema50, dec) if pd.notnull(ema50) else None,
                 }
             }
 
@@ -384,6 +411,10 @@ class TrendFollowingStrategy(BaseStrategy):
 
         curr = df.iloc[idx]
         close = curr["close"]
+        sym_str = str(curr.get("symbol", "UNKNOWN"))
+        dec = get_precision_for_symbol(sym_str, close)
+        is_forex = (dec == 4)
+
         vwap = curr.get("vwap")
         ema20 = curr.get("ema20")
         ema50 = curr.get("ema50")
@@ -405,27 +436,31 @@ class TrendFollowingStrategy(BaseStrategy):
             if not approved:
                 return None
 
-            risk_buffer = max(2.0 * atr, close * 0.010)
-            reward_buffer = max(3.0 * atr, close * 0.015)
-            target = round(close + reward_buffer, 2)
-            stop_loss = round(vwap - 0.5 * atr, 2)
-            if stop_loss >= close or (close - stop_loss) < (close * 0.008):
-                stop_loss = round(close - risk_buffer, 2)
+            risk_buffer = max(1.5 * atr, close * (0.004 if is_forex else 0.010))
+            reward_buffer = max(2.5 * atr, close * (0.006 if is_forex else 0.015))
+            target = round(close + reward_buffer, dec)
+            sl_cand = round(vwap - 0.5 * atr, dec)
+            min_dist = close * (0.003 if is_forex else 0.008)
+            if sl_cand >= close or (close - sl_cand) < min_dist:
+                stop_loss = round(close - risk_buffer, dec)
+            else:
+                stop_loss = sl_cand
 
             risk = close - stop_loss
             risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
             confidence = min(0.95, max(0.70, round(0.76 + conf_delta, 2)))
-            reason_text = f"Bullish pullback trend: Price testing VWAP ({vwap:.2f}) from above, ADX={adx:.1f}, EMA20 > EMA50"
+            vwap_str = f"{vwap:.4f}" if is_forex else f"{vwap:.2f}"
+            reason_text = f"Bullish pullback trend: Price testing VWAP ({vwap_str}) from above, ADX={adx:.1f}, EMA20 > EMA50"
             if annotation:
                 reason_text += f" | {annotation}"
 
             return {
-                "symbol": str(curr.get("symbol", "UNKNOWN")),
+                "symbol": sym_str,
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "BUY",
                 "confidence": confidence,
-                "entry_price": round(close, 2),
+                "entry_price": round(close, dec),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
@@ -433,9 +468,9 @@ class TrendFollowingStrategy(BaseStrategy):
                 "patterns": patterns,
                 "indicators": {
                     "adx": round(adx, 2) if pd.notnull(adx) else None,
-                    "vwap": round(vwap, 2) if pd.notnull(vwap) else None,
-                    "ema20": round(ema20, 2) if pd.notnull(ema20) else None,
-                    "ema50": round(ema50, 2) if pd.notnull(ema50) else None,
+                    "vwap": round(vwap, dec) if pd.notnull(vwap) else None,
+                    "ema20": round(ema20, dec) if pd.notnull(ema20) else None,
+                    "ema50": round(ema50, dec) if pd.notnull(ema50) else None,
                 }
             }
 
@@ -452,27 +487,31 @@ class TrendFollowingStrategy(BaseStrategy):
             if not approved:
                 return None
 
-            risk_buffer = max(2.0 * atr, close * 0.010)
-            reward_buffer = max(3.0 * atr, close * 0.015)
-            target = round(close - reward_buffer, 2)
-            stop_loss = round(vwap + 0.5 * atr, 2)
-            if stop_loss <= close or (stop_loss - close) < (close * 0.008):
-                stop_loss = round(close + risk_buffer, 2)
+            risk_buffer = max(1.5 * atr, close * (0.004 if is_forex else 0.010))
+            reward_buffer = max(2.5 * atr, close * (0.006 if is_forex else 0.015))
+            target = round(close - reward_buffer, dec)
+            sl_cand = round(vwap + 0.5 * atr, dec)
+            min_dist = close * (0.003 if is_forex else 0.008)
+            if sl_cand <= close or (sl_cand - close) < min_dist:
+                stop_loss = round(close + risk_buffer, dec)
+            else:
+                stop_loss = sl_cand
 
             risk = stop_loss - close
             risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
             confidence = min(0.95, max(0.70, round(0.76 + conf_delta, 2)))
-            reason_text = f"Bearish rejection trend: Price testing VWAP ({vwap:.2f}) from below, ADX={adx:.1f}, EMA20 < EMA50"
+            vwap_str = f"{vwap:.4f}" if is_forex else f"{vwap:.2f}"
+            reason_text = f"Bearish rejection trend: Price testing VWAP ({vwap_str}) from below, ADX={adx:.1f}, EMA20 < EMA50"
             if annotation:
                 reason_text += f" | {annotation}"
 
             return {
-                "symbol": str(curr.get("symbol", "UNKNOWN")),
+                "symbol": sym_str,
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "SELL",
                 "confidence": confidence,
-                "entry_price": round(close, 2),
+                "entry_price": round(close, dec),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
@@ -480,10 +519,11 @@ class TrendFollowingStrategy(BaseStrategy):
                 "patterns": patterns,
                 "indicators": {
                     "adx": round(adx, 2) if pd.notnull(adx) else None,
-                    "vwap": round(vwap, 2) if pd.notnull(vwap) else None,
-                    "ema20": round(ema20, 2) if pd.notnull(ema20) else None,
-                    "ema50": round(ema50, 2) if pd.notnull(ema50) else None,
+                    "vwap": round(vwap, dec) if pd.notnull(vwap) else None,
+                    "ema20": round(ema20, dec) if pd.notnull(ema20) else None,
+                    "ema50": round(ema50, dec) if pd.notnull(ema50) else None,
                 }
             }
 
         return None
+

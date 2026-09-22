@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WatchlistQuote } from '../../types';
 import { api } from '../../services/api';
-import { getNSEMarketStatus, getMarketStatusForSymbol } from '../../utils/marketHours';
+import { getNSEMarketStatus, getMarketStatusForSymbol, getForexMarketStatus } from '../../utils/marketHours';
+import { formatPrice as formatCurrencyPrice, getCurrencySymbol, getPrecisionForSymbol } from '../../utils/currency';
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw, Activity,
   LayoutGrid, Table, Zap, Target, Shield, ArrowUpRight, ArrowDownRight,
@@ -29,7 +30,8 @@ type ViewMode = 'cards' | 'matrix';
 
 const DEFAULT_SYMBOLS = [
   'RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN',
-  'BHARTIARTL', 'TATAMOTORS', 'USDINR', 'EURUSD'
+  'BHARTIARTL', 'TATAMOTORS', 'USDINR', 'EURUSD', 'GBPUSD',
+  'USDJPY', 'EURINR', 'GBPINR', 'AUDUSD', 'USDCHF', 'GOLD', 'BTCUSD'
 ];
 
 const FALLBACK_QUOTES: WatchlistQuote[] = [
@@ -127,19 +129,163 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
     symbol: 'EURUSD',
     name: 'EUR / USD Spot',
     market: 'FOREX',
-    price: 1.0845,
+    price: 1.1468,
     change: -0.0016,
-    change_percentage: -0.15,
+    change_percentage: -0.14,
     signal: 'HOLD',
     action: 'WAIT',
     quantity: 1,
-    entry_price: 1.0845,
-    stop_loss: 1.0791,
-    target: 1.0910,
-    risk_reward: 1.2,
-    target_profit: 0.0065,
+    entry_price: 1.1468,
+    stop_loss: 1.1422,
+    target: 1.1537,
+    risk_reward: 1.5,
+    target_profit: 0.0069,
+    max_risk: 0.0046,
+    reason: '20 EMA Pullback Test'
+  },
+  {
+    symbol: 'GBPUSD',
+    name: 'GBP / USD Spot',
+    market: 'FOREX',
+    price: 1.3368,
+    change: 0.0022,
+    change_percentage: 0.16,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 1.3368,
+    stop_loss: 1.3314,
+    target: 1.3448,
+    risk_reward: 1.5,
+    target_profit: 0.0080,
     max_risk: 0.0054,
-    reason: 'Awaiting Trend Continuation'
+    reason: 'Ascending Channel Continuation'
+  },
+  {
+    symbol: 'USDJPY',
+    name: 'USD / JPY Spot',
+    market: 'FOREX',
+    price: 157.18,
+    change: 0.35,
+    change_percentage: 0.22,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 157.18,
+    stop_loss: 156.40,
+    target: 158.35,
+    risk_reward: 1.5,
+    target_profit: 1.17,
+    max_risk: 0.78,
+    reason: 'Testing Key Overhead Resistance'
+  },
+  {
+    symbol: 'EURINR',
+    name: 'EUR / INR Spot',
+    market: 'FOREX',
+    price: 109.5820,
+    change: -0.1240,
+    change_percentage: -0.11,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 109.5820,
+    stop_loss: 109.0340,
+    target: 110.4040,
+    risk_reward: 1.5,
+    target_profit: 0.8220,
+    max_risk: 0.5480,
+    reason: 'VWAP Support Test'
+  },
+  {
+    symbol: 'GBPINR',
+    name: 'GBP / INR Spot',
+    market: 'FOREX',
+    price: 127.7375,
+    change: 0.1850,
+    change_percentage: 0.15,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 127.7375,
+    stop_loss: 127.0980,
+    target: 128.6965,
+    risk_reward: 1.5,
+    target_profit: 0.9590,
+    max_risk: 0.6395,
+    reason: 'Bullish Momentum Range'
+  },
+  {
+    symbol: 'AUDUSD',
+    name: 'AUD / USD Spot',
+    market: 'FOREX',
+    price: 0.7115,
+    change: 0.0010,
+    change_percentage: 0.14,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 0.7115,
+    stop_loss: 0.7086,
+    target: 0.7158,
+    risk_reward: 1.5,
+    target_profit: 0.0043,
+    max_risk: 0.0029,
+    reason: 'Consolidation at Pivot'
+  },
+  {
+    symbol: 'USDCHF',
+    name: 'USD / CHF Spot',
+    market: 'FOREX',
+    price: 0.8193,
+    change: -0.0008,
+    change_percentage: -0.10,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 0.8193,
+    stop_loss: 0.8160,
+    target: 0.8242,
+    risk_reward: 1.5,
+    target_profit: 0.0049,
+    max_risk: 0.0033,
+    reason: 'Range Boundary Bounce'
+  },
+  {
+    symbol: 'GOLD',
+    name: 'Gold Futures',
+    market: 'FOREX',
+    price: 4378.40,
+    change: 14.50,
+    change_percentage: 0.33,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 4378.40,
+    stop_loss: 4356.50,
+    target: 4411.25,
+    risk_reward: 1.5,
+    target_profit: 32.85,
+    max_risk: 21.90,
+    reason: 'Ascending Trendline Support'
+  },
+  {
+    symbol: 'BTCUSD',
+    name: 'Bitcoin / USD',
+    market: 'FOREX',
+    price: 86020.00,
+    change: 1240.00,
+    change_percentage: 1.46,
+    signal: 'HOLD',
+    action: 'WAIT',
+    quantity: 1,
+    entry_price: 86020.00,
+    stop_loss: 85160.00,
+    target: 87310.00,
+    risk_reward: 1.5,
+    target_profit: 1290.00,
+    max_risk: 860.00,
+    reason: '24/7 Global Momentum Surge'
   },
 ];
 
@@ -147,12 +293,11 @@ const FALLBACK_QUOTES: WatchlistQuote[] = [
  * Ensures every quote has concrete trade decision parameters calculated
  */
 const enrichQuote = (q: WatchlistQuote): WatchlistQuote => {
-  const isForex = q.market === 'FOREX';
-  const dec = isForex ? 4 : 2;
+  const price = Number(q.price) || 0;
+  const dec = getPrecisionForSymbol(q.symbol, price);
   const rawSignal = (q.signal || 'HOLD').toUpperCase();
   const action: 'BUY' | 'SELL' | 'WAIT' =
     q.action || (rawSignal === 'BUY' ? 'BUY' : rawSignal === 'SELL' ? 'SELL' : 'WAIT');
-  const price = Number(q.price) || 0;
   const entry_price = q.entry_price !== undefined ? Number(q.entry_price) : price;
   const quantity = q.quantity || 1;
 
@@ -262,26 +407,12 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
     return true;
   });
 
-  const formatPrice = (price: number, market: 'NSE' | 'FOREX', symbol: string) => {
-    if (typeof price !== 'number' || isNaN(price)) return '—';
-    if (market === 'FOREX') {
-      if (symbol.includes('INR')) {
-        return `₹${price.toFixed(4)}`;
-      }
-      return price.toFixed(4);
-    }
-    return `₹${price.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const formatPrice = (price: number, _market?: string, symbol: string = '') => {
+    return formatCurrencyPrice(price, symbol);
   };
 
-  const formatCurrencyValue = (val: number | undefined, market: 'NSE' | 'FOREX', symbol: string) => {
-    if (val === undefined || isNaN(val)) return '—';
-    if (market === 'FOREX') {
-      if (symbol.includes('INR')) {
-        return `₹${val.toFixed(4)}`;
-      }
-      return val.toFixed(4);
-    }
-    return `₹${val.toFixed(2)}`;
+  const formatCurrencyValue = (val: number | undefined, _market?: string, symbol: string = '') => {
+    return formatCurrencyPrice(val, symbol);
   };
 
   // Render Action Suggestion Banner
@@ -334,9 +465,19 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                   ⏸ NSE CLOSED (09:15-15:30 IST)
                 </span>
               )}
+              {getForexMarketStatus().is_open ? (
+                <span className="flex items-center gap-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] font-bold text-blue-400 border border-blue-500/30">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 animate-pulse"></span>
+                  ● FOREX 24/5 LIVE
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 rounded-full bg-slate-500/15 px-2 py-0.5 text-[10px] font-bold text-slate-400 border border-slate-500/30">
+                  ⏸ FOREX WEEKEND
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-400">
-              Real-time actionable scalp setups for all 6 assets simultaneously with 1-click execution
+              Real-time actionable scalp setups for 18 multi-asset instruments simultaneously with 1-click execution
             </p>
           </div>
         </div>

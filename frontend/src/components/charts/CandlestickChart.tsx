@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { createChart, ColorType, IChartApi, ISeriesApi } from 'lightweight-charts';
 import { CandleData } from '../../types';
+import { getPrecisionForSymbol, isForexSymbol, isCryptoSymbol } from '../../utils/currency';
 
 interface ChartProps {
   data: CandleData[];
@@ -68,6 +69,9 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
 
     chartRef.current = chart;
 
+    const precision = getPrecisionForSymbol(symbol);
+    const minMove = 1 / Math.pow(10, precision);
+
     // Candlestick Series
     const candleSeries = chart.addCandlestickSeries({
       upColor: '#10b981',
@@ -75,6 +79,11 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
       borderVisible: false,
       wickUpColor: '#10b981',
       wickDownColor: '#ef4444',
+      priceFormat: {
+        type: 'price',
+        precision: precision,
+        minMove: minMove,
+      },
     });
     candleSeriesRef.current = candleSeries;
 
@@ -96,6 +105,11 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
       color: '#38bdf8',
       lineWidth: 2,
       title: 'EMA 20',
+      priceFormat: {
+        type: 'price',
+        precision: precision,
+        minMove: minMove,
+      },
     });
     ema20SeriesRef.current = ema20;
 
@@ -104,6 +118,11 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
       color: '#a855f7',
       lineWidth: 2,
       title: 'EMA 50',
+      priceFormat: {
+        type: 'price',
+        precision: precision,
+        minMove: minMove,
+      },
     });
     ema50SeriesRef.current = ema50;
 
@@ -113,6 +132,11 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
       lineWidth: 1,
       lineStyle: 2,
       title: 'VWAP',
+      priceFormat: {
+        type: 'price',
+        precision: precision,
+        minMove: minMove,
+      },
     });
     vwapSeriesRef.current = vwap;
 
@@ -134,6 +158,21 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
     if (!candleSeriesRef.current || !data || data.length === 0) return;
 
     try {
+      const precision = getPrecisionForSymbol(symbol);
+      const minMove = 1 / Math.pow(10, precision);
+      candleSeriesRef.current.applyOptions({
+        priceFormat: { type: 'price', precision, minMove }
+      });
+      ema20SeriesRef.current?.applyOptions({
+        priceFormat: { type: 'price', precision, minMove }
+      });
+      ema50SeriesRef.current?.applyOptions({
+        priceFormat: { type: 'price', precision, minMove }
+      });
+      vwapSeriesRef.current?.applyOptions({
+        priceFormat: { type: 'price', precision, minMove }
+      });
+
       const formattedCandles = data.map(d => ({
         time: toIstChartTime(d.timestamp),
         open: d.open,
@@ -179,7 +218,7 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
     } catch (e) {
       console.error('Error updating chart series:', e);
     }
-  }, [data]);
+  }, [data, symbol]);
 
   return (
     <div className="relative rounded-xl border border-dark-600 bg-dark-800 p-4 shadow-xl">
@@ -188,7 +227,7 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
           <span className="text-xl font-bold tracking-tight text-white">{symbol}</span>
           <span className="rounded bg-dark-700 px-2 py-0.5 text-xs font-semibold text-slate-300">5m</span>
           <span className="rounded bg-indigo-500/10 border border-indigo-500/30 px-2 py-0.5 text-[11px] font-bold text-indigo-300">
-            🇮🇳 IST (UTC+5:30)
+            {isCryptoSymbol(symbol) ? '🪙 24/7 CRYPTO' : isForexSymbol(symbol) ? '🌍 24/5 FOREX' : '🇮🇳 IST (UTC+5:30)'}
           </span>
           {marketMode === 'LIVE' ? (
             <span className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-xs font-bold text-rose-400 border border-rose-500/20">

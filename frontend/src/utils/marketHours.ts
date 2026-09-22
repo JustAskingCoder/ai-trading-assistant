@@ -96,10 +96,41 @@ export function getForexMarketStatus(): MarketTradingStatus {
  * Returns market trading status for any symbol or category.
  */
 export function getMarketStatusForSymbol(symbol: string): MarketTradingStatus {
-  const clean = symbol.toUpperCase().replace('/', '').replace(' ', '');
-  const forexSymbols = ['USDINR', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURINR', 'GBPINR', 'AUDUSD'];
-  if (forexSymbols.includes(clean) || clean.includes('=X') || clean.includes('USD')) {
+  const clean = symbol.toUpperCase().replace('/', '').replace(' ', '').replace('_', '');
+  
+  // 1. Crypto 24/7 check
+  if (clean === 'BTCUSD' || clean === 'BTC-USD' || clean === 'BTC' || clean === 'CRYPTO') {
+    const ist = getISTDate();
+    const pad = (n: number) => (n < 10 ? '0' + n : n);
+    const timeStr = `${pad(ist.getHours())}:${pad(ist.getMinutes())}:${pad(ist.getSeconds())} IST`;
+    return {
+      market: 'CRYPTO',
+      is_open: true,
+      status: 'OPEN',
+      current_time_ist: timeStr,
+      trading_hours: '24/7 Non-Stop',
+      message: 'Crypto Market is Open (24/7 Non-Stop)',
+      reason: 'Global 24/7 Decentralized Trading',
+      next_open: null,
+    };
+  }
+
+  // 2. Forex 24/5 check
+  const forexSymbols = [
+    'USDINR', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURINR', 'GBPINR', 'AUDUSD', 'USDCHF', 'GOLD',
+    'USDINR=X', 'EURUSD=X', 'GBPUSD=X', 'JPY=X', 'EURINR=X', 'GBPINR=X', 'AUDUSD=X', 'CHF=X', 'GC=F'
+  ];
+  if (forexSymbols.includes(clean) || clean.includes('=X') || clean === 'FOREX') {
     return getForexMarketStatus();
   }
+
+  // Check if foreign currency pair (e.g. USD, EUR) but not Indian equity
+  if (
+    !['RELIANCE', 'TCS', 'INFY', 'HDFCBANK', 'ICICIBANK', 'SBIN', 'BHARTIARTL', 'TATAMOTORS', 'NIFTY', 'BANKNIFTY'].includes(clean) &&
+    (clean.includes('USD') || clean.includes('EUR') || clean.includes('GBP'))
+  ) {
+    return getForexMarketStatus();
+  }
+
   return getNSEMarketStatus();
 }
