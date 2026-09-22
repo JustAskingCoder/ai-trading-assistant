@@ -19,7 +19,13 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
   const getWindowStatus = (entryTime?: string | null, windowMinutes: number = 30) => {
     const totalSec = Math.max(60, (windowMinutes || 30) * 60);
     if (!entryTime) return { text: `⏱ ${windowMinutes || 30}m Max`, style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
-    const elapsedSec = Math.floor((Date.now() - new Date(entryTime).getTime()) / 1000);
+
+    // Ensure ISO timestamp from backend is parsed as UTC if no timezone offset is present
+    const isoUtc = entryTime.endsWith('Z') || entryTime.includes('+') ? entryTime : `${entryTime}Z`;
+    const entryEpoch = new Date(isoUtc).getTime();
+    if (isNaN(entryEpoch)) return { text: `⏱ ${windowMinutes || 30}m Max`, style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - entryEpoch) / 1000));
     const remSec = Math.max(0, totalSec - elapsedSec);
     const mins = Math.floor(remSec / 60);
     const secs = remSec % 60;

@@ -102,7 +102,7 @@ def get_positions(db: Session = Depends(get_db)):
         "current_price": p.current_price,
         "stop_loss": p.stop_loss,
         "target": p.target,
-        "entry_time": p.entry_time.isoformat() if getattr(p, "entry_time", None) else None,
+        "entry_time": (p.entry_time.isoformat() + "Z") if getattr(p, "entry_time", None) else None,
         "window_minutes": 10 if p.symbol.startswith("TEST") else (getattr(p, "window_minutes", 30) or 30),
         "unrealized_pnl": round(p.unrealized_pnl, 2),
         "pnl_percentage": round(
