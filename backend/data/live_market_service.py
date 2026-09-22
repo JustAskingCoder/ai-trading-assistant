@@ -102,8 +102,8 @@ def to_yf_symbol(symbol: str) -> str:
 
 
 class LiveMarketService:
-    def __init__(self):
-        self._mode: str = "SIMULATOR"
+    def __init__(self, default_mode: str = "SIMULATOR"):
+        self._mode: str = default_mode
         self._symbol: str = "RELIANCE"
         self._interval: str = "5m"
         self.data_source: str = "YFINANCE"  # "YFINANCE" or "ZERODHA"

@@ -196,9 +196,27 @@ export const CandlestickChart: React.FC<ChartProps> = ({ data, symbol, marketMod
               ● LIVE REAL-TIME FEED
             </span>
           ) : (
-            <span className="flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-400">
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-              Simulated Feed
+            <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-xs font-bold text-amber-400">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+              🎞 Offline Simulator Replay
+            </span>
+          )}
+          {data && data.length > 0 && (
+            <span className="hidden sm:inline-flex items-center gap-1 rounded bg-dark-700/80 border border-dark-600 px-2 py-0.5 text-[11px] text-slate-300">
+              Latest Candle:
+              <strong className="text-emerald-400 font-mono">
+                {(() => {
+                  const raw = data[data.length - 1].timestamp;
+                  try {
+                    const d = new Date(raw);
+                    return !isNaN(d.getTime())
+                      ? d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' })
+                      : String(raw);
+                  } catch {
+                    return String(raw);
+                  }
+                })()}
+              </strong>
             </span>
           )}
         </div>

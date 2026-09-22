@@ -47,7 +47,7 @@ export default function App() {
   // Simulator state
   const [simRunning, setSimRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(2.0);
-  const [marketMode, setMarketMode] = useState<'LIVE' | 'SIMULATOR'>('SIMULATOR');
+  const [marketMode, setMarketMode] = useState<'LIVE' | 'SIMULATOR'>('LIVE');
 
   // Query initial market mode and Zerodha status
   useEffect(() => {
@@ -60,9 +60,15 @@ export default function App() {
 
     api.getMarketMode()
       .then(res => {
-        if (res?.mode) setMarketMode(res.mode);
+        if (res?.mode) {
+          setMarketMode(res.mode);
+        } else {
+          api.setMarketMode('LIVE', symbol).catch(() => {});
+        }
       })
-      .catch(() => {});
+      .catch(() => {
+        api.setMarketMode('LIVE', symbol).catch(() => {});
+      });
 
     api.getSimulatorStatus()
       .then(sim => {
@@ -577,9 +583,9 @@ export default function App() {
                   ● LIVE NSE FEED
                 </span>
               ) : (
-                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-400">
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                  ONLINE
+                <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                  🎞 REPLAY SIMULATOR (Historical Data)
                 </span>
               )}
               <span className="rounded bg-sky-500/10 border border-sky-500/30 px-2 py-0.5 text-[11px] font-bold text-sky-400">

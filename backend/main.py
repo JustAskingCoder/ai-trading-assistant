@@ -31,6 +31,13 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("Could not pre-load sample data: %s", e)
 
+    # Auto-start live market service for real-time tracking
+    try:
+        live_service.start(symbol="RELIANCE")
+        logger.info("Live market service auto-started for RELIANCE.")
+    except Exception as e:
+        logger.warning("Could not auto-start live service: %s", e)
+
     yield
     simulator.stop()
     live_service.stop()
