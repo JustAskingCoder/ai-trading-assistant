@@ -1482,15 +1482,16 @@ def test_no_fake_signals_when_strategies_hold_and_rr_guaranteed():
         mock_inst.history.return_value = mock_df
         mock_ticker_cls.return_value = mock_inst
 
-        with patch.object(service.strategies[0], "evaluate", return_value={"strategy": "MockStrat", "signal": "BUY", "confidence": 0.85, "reason": "Mock breakout"}):
-            buy_quotes = service.get_watchlist_quotes(["RELIANCE"])
-            assert len(buy_quotes) == 1
-            bq = buy_quotes[0]
-            assert bq["signal"] == "BUY"
-            assert bq["action"] == "BUY"
-            assert bq["risk_reward"] >= 0.8
-            assert bq["stop_loss"] < bq["entry_price"]
-            assert bq["target"] > bq["entry_price"]
+        with patch.object(service, "check_time_of_day_filter", return_value=(True, "Golden Momentum Window")):
+            with patch.object(service.strategies[0], "evaluate", return_value={"strategy": "MockStrat", "signal": "BUY", "confidence": 0.85, "reason": "Mock breakout"}):
+                buy_quotes = service.get_watchlist_quotes(["RELIANCE"])
+                assert len(buy_quotes) == 1
+                bq = buy_quotes[0]
+                assert bq["signal"] == "BUY"
+                assert bq["action"] == "BUY"
+                assert bq["risk_reward"] >= 0.8
+                assert bq["stop_loss"] < bq["entry_price"]
+                assert bq["target"] > bq["entry_price"]
 
     # Test SELL signal generation when strategy evaluates SELL
     service.clear_cache()
@@ -1499,15 +1500,16 @@ def test_no_fake_signals_when_strategies_hold_and_rr_guaranteed():
         mock_inst.history.return_value = mock_df
         mock_ticker_cls.return_value = mock_inst
 
-        with patch.object(service.strategies[0], "evaluate", return_value={"strategy": "MockStrat", "signal": "SELL", "confidence": 0.85, "reason": "Mock breakdown"}):
-            sell_quotes = service.get_watchlist_quotes(["RELIANCE"])
-            assert len(sell_quotes) == 1
-            sq = sell_quotes[0]
-            assert sq["signal"] == "SELL"
-            assert sq["action"] == "SELL"
-            assert sq["risk_reward"] >= 0.8
-            assert sq["stop_loss"] > sq["entry_price"]
-            assert sq["target"] < sq["entry_price"]
+        with patch.object(service, "check_time_of_day_filter", return_value=(True, "Golden Momentum Window")):
+            with patch.object(service.strategies[0], "evaluate", return_value={"strategy": "MockStrat", "signal": "SELL", "confidence": 0.85, "reason": "Mock breakdown"}):
+                sell_quotes = service.get_watchlist_quotes(["RELIANCE"])
+                assert len(sell_quotes) == 1
+                sq = sell_quotes[0]
+                assert sq["signal"] == "SELL"
+                assert sq["action"] == "SELL"
+                assert sq["risk_reward"] >= 0.8
+                assert sq["stop_loss"] > sq["entry_price"]
+                assert sq["target"] < sq["entry_price"]
 
 
 def test_api_market_watchlist_endpoint():
@@ -2140,6 +2142,56 @@ def test_breakout_solid_candle_body_filter():
     assert sig_solid is not None
     assert sig_solid["signal"] == "BUY"
     assert sig_solid["entry_price"] == 1009.0
+
+
+def test_market_session_status_and_closed_detection():
+    """Verify market trading status detection for NSE and Forex."""
+    from backend.data.live_market_service import get_market_trading_status, live_service
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+    from fastapi.testclient import TestClient
+    from backend.main import app
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+
+    # 1. Closed session (Weekday after 15:30 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 16, 45, 0, tzinfo=ist)
+        res = get_market_trading_status("NSE")
+        assert res["is_open"] is False
+        assert res["status"] == "CLOSED"
+        assert "Market is Closed" in res["message"]
+
+        # Also verify check_time_of_day_filter returns False when market is closed
+        is_opt, reason = live_service.check_time_of_day_filter()
+        assert is_opt is False
+        assert "Market is Closed" in reason
+
+    # 2. Open session (Weekday during 09:15 - 15:30 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 11, 0, 0, tzinfo=ist)
+        res = get_market_trading_status("NSE")
+        assert res["is_open"] is True
+        assert res["status"] == "OPEN"
+        assert res["message"] == "Market is Open"
+
+    # 3. Weekend session (Saturday)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 28, 12, 0, 0, tzinfo=ist)
+        res = get_market_trading_status("NSE")
+        assert res["is_open"] is False
+        assert res["status"] == "CLOSED"
+        assert "Weekend" in res["reason"]
+
+    # 4. REST API endpoint GET /api/market/status
+    client = TestClient(app)
+    api_res = client.get("/api/market/status?category=NSE")
+    assert api_res.status_code == 200
+    data = api_res.json()
+    assert "is_open" in data
+    assert "status" in data
+    assert "trading_hours" in data
+
 
 
 

@@ -39,6 +39,9 @@ export interface Signal {
   suggested_window?: number;
   market_tide?: string;
   macro_trend?: string;
+  is_market_open?: boolean;
+  market_status?: 'OPEN' | 'CLOSED';
+  market_status_message?: string;
 }
 
 export interface PortfolioData {
@@ -153,6 +156,20 @@ export interface WatchlistQuote {
   confidence?: number;
   suggested_window?: number;
   patterns?: Pattern[];
+  is_market_open?: boolean;
+  market_status?: 'OPEN' | 'CLOSED';
+  market_status_message?: string;
+}
+
+export interface MarketTradingStatus {
+  market: 'NSE' | 'FOREX';
+  is_open: boolean;
+  status: 'OPEN' | 'CLOSED';
+  current_time_ist: string;
+  trading_hours: string;
+  message: string;
+  reason?: string;
+  next_open?: string | null;
 }
 
 export interface TrendAnalysis {

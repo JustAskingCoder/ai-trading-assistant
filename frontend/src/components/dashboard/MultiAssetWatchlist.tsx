@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { WatchlistQuote } from '../../types';
 import { api } from '../../services/api';
+import { getNSEMarketStatus, getMarketStatusForSymbol } from '../../utils/marketHours';
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw, Activity,
   LayoutGrid, Table, Zap, Target, Shield, ArrowUpRight, ArrowDownRight
@@ -289,10 +290,17 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
               <h2 className="text-sm font-black tracking-wide text-white uppercase">
                 ⚡ LIVE MULTI-ASSET SCANNER & TRADE DECISION MATRIX
               </h2>
-              <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                5s Live Stream
-              </span>
+              {getNSEMarketStatus().is_open ? (
+                <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                  ● NSE OPEN
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-400"></span>
+                  ⏸ NSE CLOSED (09:15-15:30 IST)
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-slate-400">
               Real-time actionable scalp setups for all 6 assets simultaneously with 1-click execution
@@ -424,15 +432,22 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                         </p>
                       )}
                     </div>
-                    <span
-                      className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
-                        item.market === 'FOREX'
-                          ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                          : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                      }`}
-                    >
-                      {item.market}
-                    </span>
+                    <div className="flex items-center gap-1">
+                      {!getMarketStatusForSymbol(item.symbol).is_open && (
+                        <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 uppercase">
+                          Closed
+                        </span>
+                      )}
+                      <span
+                        className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border uppercase tracking-wider ${
+                          item.market === 'FOREX'
+                            ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        }`}
+                      >
+                        {item.market}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Price & Day Change */}
@@ -594,15 +609,22 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
 
                     {/* Category */}
                     <td className="px-3 py-3.5">
-                      <span
-                        className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
-                          item.market === 'FOREX'
-                            ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
-                            : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-                        }`}
-                      >
-                        {item.market}
-                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {!getMarketStatusForSymbol(item.symbol).is_open && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/20 text-amber-300 border-amber-500/40 uppercase">
+                            Closed
+                          </span>
+                        )}
+                        <span
+                          className={`text-[10px] font-bold px-2 py-0.5 rounded border uppercase ${
+                            item.market === 'FOREX'
+                              ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                              : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                          }`}
+                        >
+                          {item.market}
+                        </span>
+                      </div>
                     </td>
 
                     {/* Live Price */}

@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis } from '../types';
+import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus } from '../types';
 
 const client = axios.create({
   baseURL: '/api'
@@ -7,6 +7,8 @@ const client = axios.create({
 
 export const api = {
   getHealth: () => client.get('/health').then(r => r.data),
+  getMarketStatus: (category = 'NSE'): Promise<MarketTradingStatus> =>
+    client.get('/market/status', { params: { category } }).then(r => r.data),
   getCandles: (symbol: string, interval = '5m', limit = 200): Promise<CandleData[]> =>
     client.get(`/market/${symbol}/candles`, { params: { interval, limit } }).then(r => r.data),
   getOverview: (symbol: string) =>

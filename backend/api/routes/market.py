@@ -8,7 +8,7 @@ from backend.database.session import get_db
 from backend.database.models import Instrument, Candle
 from backend.data.csv_loader import load_csv_to_dataframe
 from backend.data.market_simulator import simulator
-from backend.data.live_market_service import live_service, get_market_category, SYMBOL_NAMES
+from backend.data.live_market_service import live_service, get_market_category, SYMBOL_NAMES, get_market_trading_status
 from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.indicators.engine import calculate_indicators, get_latest_indicators_summary
 from backend.patterns.engine import detect_all_patterns
@@ -121,6 +121,13 @@ async def set_market_mode(
 def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,USDINR,EURUSD")):
     symbol_list = [s.strip() for s in symbols.split(",") if s.strip()]
     return live_service.get_watchlist_quotes(symbol_list)
+
+
+@router.get("/market/status")
+def get_market_session_status(category: str = "NSE"):
+    """Get real-time exchange trading status (OPEN / CLOSED) and trading hours."""
+    return get_market_trading_status(category)
+
 
 
 @router.get("/market/{symbol}/trend")
@@ -305,3 +312,4 @@ def get_simulator_status():
         "current_index": simulator.current_index,
         "total_candles": len(simulator.data) if simulator.data is not None else 0
     }
+

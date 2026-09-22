@@ -71,6 +71,7 @@ app.include_router(zerodha.router)
 
 @app.get("/api/health", tags=["Health"])
 def health_check():
+    from backend.data.live_market_service import get_market_trading_status
     return {
         "status": "online",
         "app": settings.PROJECT_NAME,
@@ -78,7 +79,8 @@ def health_check():
         "mode": settings.TRADING_MODE,
         "database": "connected",
         "simulator_running": simulator.is_running,
-        "live_running": live_service.is_running
+        "live_running": live_service.is_running,
+        "market_status": get_market_trading_status("NSE")
     }
 
 

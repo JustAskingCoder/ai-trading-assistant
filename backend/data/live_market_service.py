@@ -2,7 +2,8 @@
 import asyncio
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+import datetime as dt_module
 from typing import Optional, Dict, Any, List, Tuple
 import pandas as pd
 import yfinance
@@ -102,6 +103,69 @@ def to_yf_symbol(symbol: str) -> str:
         return SYMBOL_MAP[clean]
 
     return f"{clean}.NS"
+
+
+def get_market_trading_status(symbol_or_market: str = "NSE") -> Dict[str, Any]:
+    """
+    Evaluates real-time trading status (OPEN / CLOSED) based on IST exchange hours.
+    NSE Equities: Monday to Friday, 09:15 - 15:30 IST.
+    Forex: Monday 02:30 IST to Saturday 02:30 IST (24/5).
+    """
+    cat = get_market_category(symbol_or_market) if symbol_or_market not in ["NSE", "FOREX"] else symbol_or_market
+    ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+    weekday = ist_now.weekday()  # 0 = Monday, 6 = Sunday
+    t = ist_now.time()
+
+    if cat == "FOREX":
+        # Forex operates 24/5: Opens Monday ~02:30 IST, Closes Saturday ~02:30 IST
+        is_open = True
+        if weekday == 5 and t >= dt_module.time(2, 30):  # Sat after 2:30am
+            is_open = False
+        elif weekday == 6:  # Sun all day
+            is_open = False
+        elif weekday == 0 and t < dt_module.time(2, 30):  # Mon before 2:30am
+            is_open = False
+
+        status = "OPEN" if is_open else "CLOSED"
+        return {
+            "market": "FOREX",
+            "is_open": is_open,
+            "status": status,
+            "current_time_ist": ist_now.strftime("%H:%M:%S IST"),
+            "trading_hours": "24/5 (Mon 02:30 - Sat 02:30 IST)",
+            "message": "Forex Market is Open" if is_open else "Forex Market is Closed for the Weekend",
+            "next_open": "Monday 02:30 AM IST" if not is_open else None
+        }
+    else:
+        # NSE / Indian Equities
+        is_weekday = weekday < 5  # Mon - Fri
+        market_hours = (dt_module.time(9, 15) <= t <= dt_module.time(15, 30))
+        is_open = is_weekday and market_hours
+
+        status = "OPEN" if is_open else "CLOSED"
+        if not is_weekday:
+            reason = "Market is Closed for the Weekend"
+            next_open = "Monday at 09:15 AM IST"
+        elif t < dt_module.time(9, 15):
+            reason = "Pre-Market / Market Opens at 09:15 AM IST"
+            next_open = "Today at 09:15 AM IST"
+        elif t > dt_module.time(15, 30):
+            reason = "Post-Market / Regular Session Closed at 03:30 PM IST"
+            next_open = "Tomorrow at 09:15 AM IST" if weekday < 4 else "Monday at 09:15 AM IST"
+        else:
+            reason = "Regular Trading Session"
+            next_open = None
+
+        return {
+            "market": "NSE",
+            "is_open": is_open,
+            "status": status,
+            "current_time_ist": ist_now.strftime("%H:%M:%S IST"),
+            "trading_hours": "09:15 - 15:30 IST (Mon - Fri)",
+            "message": "Market is Open" if is_open else "Market is Closed",
+            "reason": reason,
+            "next_open": next_open
+        }
 
 
 class LiveMarketService:
@@ -313,6 +377,9 @@ class LiveMarketService:
             "confidence": confidence,
             "market": market,
             "source": "ZERODHA (0-DELAY)",
+            "is_market_open": get_market_trading_status(market)["is_open"],
+            "market_status": get_market_trading_status(market)["status"],
+            "market_status_message": get_market_trading_status(market)["message"],
             "indicators": {
                 "day_high": round(high_p, dec),
                 "day_low": round(low_p, dec),
@@ -352,14 +419,17 @@ class LiveMarketService:
     def check_time_of_day_filter(self) -> Tuple[bool, str]:
         """
         Checks if current Indian market time (IST) falls in the Golden Trading Hours
-        or high-risk trap zones (opening whipsaw / lunch chop).
+        or high-risk trap zones (opening whipsaw / lunch chop), or if market is closed.
         Returns (is_optimal, reason).
         """
         try:
-            from datetime import timezone, timedelta
-            import datetime as dt_module
             ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+            weekday = ist_now.weekday()
             t = ist_now.time()
+
+            # Check if outside NSE market hours or on weekend
+            if weekday >= 5 or t < dt_module.time(9, 15) or t > dt_module.time(15, 30):
+                return False, "Market is Closed (Regular trading hours: 09:15-15:30 IST Mon-Fri)"
 
             # 09:15 - 09:30: Opening whipsaw / institutional stop-hunt
             if dt_module.time(9, 15) <= t < dt_module.time(9, 30):
@@ -645,6 +715,9 @@ class LiveMarketService:
                 "strategy": strategy_name,
                 "confidence": confidence,
                 "market": market,
+                "is_market_open": get_market_trading_status(market)["is_open"],
+                "market_status": get_market_trading_status(market)["status"],
+                "market_status_message": get_market_trading_status(market)["message"],
                 "market_tide": market_tide,
                 "macro_trend": macro_trend,
                 "patterns": strat_sig.get("patterns", []) if strat_sig else (detect_all_patterns(ind_df, -1) if len(ind_df) >= 20 else []),

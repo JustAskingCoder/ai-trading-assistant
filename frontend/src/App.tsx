@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from './services/api';
-import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus, TrendAnalysis } from './types';
+import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus } from './types';
+import { getNSEMarketStatus } from './utils/marketHours';
 import { CandlestickChart } from './components/charts/CandlestickChart';
 import { PortfolioCard } from './components/dashboard/PortfolioCard';
 import { SignalCard } from './components/dashboard/SignalCard';
@@ -49,6 +50,21 @@ export default function App() {
   const [simRunning, setSimRunning] = useState(false);
   const [simSpeed, setSimSpeed] = useState(2.0);
   const [marketMode, setMarketMode] = useState<'LIVE' | 'SIMULATOR'>('LIVE');
+  const [marketStatus, setMarketStatus] = useState<MarketTradingStatus>(getNSEMarketStatus());
+
+  // Periodically refresh market status (every 10s)
+  useEffect(() => {
+    const refreshMarketStatus = () => {
+      const local = getNSEMarketStatus();
+      setMarketStatus(local);
+      api.getMarketStatus('NSE').then(res => {
+        if (res) setMarketStatus(res);
+      }).catch(() => {});
+    };
+    refreshMarketStatus();
+    const interval = setInterval(refreshMarketStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Query initial market mode and Zerodha status
   useEffect(() => {
@@ -638,10 +654,17 @@ export default function App() {
             <div className="flex items-center gap-2">
               <h1 className="text-lg font-extrabold tracking-tight text-white">AI Trading Assistant</h1>
               {marketMode === 'LIVE' ? (
-                <span className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-400 border border-rose-500/20">
-                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse"></span>
-                  ● LIVE NSE FEED
-                </span>
+                marketStatus.is_open ? (
+                  <span className="flex items-center gap-1.5 rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-400 border border-rose-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse"></span>
+                    ● LIVE NSE FEED
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+                    ⏸ MARKET CLOSED (NSE)
+                  </span>
+                )
               ) : (
                 <span className="flex items-center gap-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-400">
                   <span className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse"></span>
@@ -702,29 +725,48 @@ export default function App() {
               onClick={() => handleSwitchMode('LIVE')}
               className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
                 marketMode === 'LIVE'
-                  ? 'bg-rose-600 text-white shadow'
+                  ? marketStatus.is_open
+                    ? 'bg-rose-600 text-white shadow'
+                    : 'bg-amber-600/90 text-white shadow border border-amber-500/40'
                   : 'text-slate-400 hover:text-white'
               }`}
             >
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              🔴 LIVE NSE
+              {marketStatus.is_open ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  🔴 LIVE NSE
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-amber-300"></span>
+                  ⏸ LIVE NSE (Closed)
+                </>
+              )}
             </button>
           </div>
 
           {/* Real-time Status Badge */}
           <div className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl border border-dark-600 bg-dark-900/90 text-xs font-semibold">
             {marketMode === 'LIVE' ? (
-              <>
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-                <span className="text-emerald-400 font-bold tracking-wider">LIVE FEED ONLINE</span>
-                <span className="text-slate-400 text-[11px]">({zerodhaStatus?.is_connected ? 'Zerodha Kite' : 'NSE Intraday'})</span>
-              </>
+              marketStatus.is_open ? (
+                <>
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                  </span>
+                  <span className="text-emerald-400 font-bold tracking-wider">LIVE FEED ONLINE</span>
+                  <span className="text-slate-400 text-[11px]">({zerodhaStatus?.is_connected ? 'Zerodha Kite' : 'NSE Intraday'})</span>
+                </>
+              ) : (
+                <>
+                  <span className="h-2 w-2 rounded-full bg-amber-400"></span>
+                  <span className="text-amber-400 font-bold tracking-wider">MARKET IS CLOSED</span>
+                  <span className="text-slate-400 text-[11px]">(09:15 - 15:30 IST)</span>
+                </>
+              )
             ) : (
               <>
                 <span className={`h-2 w-2 rounded-full ${simRunning ? 'bg-indigo-400 animate-pulse' : 'bg-amber-400'}`}></span>

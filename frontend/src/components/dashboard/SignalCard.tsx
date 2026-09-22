@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Signal, TrendAnalysis } from '../../types';
 import { Sparkles, ArrowUpRight, Zap, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react';
 import { api } from '../../services/api';
+import { getMarketStatusForSymbol } from '../../utils/marketHours';
 
 interface TradeFeedback {
   type: 'success' | 'rejected';
@@ -40,6 +41,7 @@ export const SignalCard: React.FC<Props> = ({
   const effectiveWindow = signal?.suggested_window || trendAnalysis?.suggested_window_minutes || 30;
   const windowLabel = trendAnalysis?.suggested_window_label || `${effectiveWindow}m Window`;
   const trendLabel = trendAnalysis?.trend_label || 'Consolidation / Setup';
+  const mktStatus = getMarketStatusForSymbol(signal?.symbol || symbol || 'RELIANCE');
 
   if (!signal) {
     return (
@@ -54,6 +56,11 @@ export const SignalCard: React.FC<Props> = ({
               <span className="rounded bg-dark-700 px-2 py-0.5 text-[10px] font-bold text-slate-300 border border-dark-600 uppercase">
                 {symbol || 'MARKET'}
               </span>
+              {!mktStatus.is_open && (
+                <span className="rounded bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-300 border border-amber-500/30">
+                  ⏸ MARKET CLOSED ({mktStatus.market})
+                </span>
+              )}
               {trendAnalysis && (
                 <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[10px] font-bold text-indigo-300 border border-indigo-500/20">
                   {trendAnalysis.regime}
@@ -184,6 +191,11 @@ export const SignalCard: React.FC<Props> = ({
                   🧭 15m: {signal.macro_trend}
                 </span>
               )}
+              {!mktStatus.is_open && (
+                <span className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-300 border border-amber-500/30">
+                  ⏸ Market Closed ({mktStatus.market})
+                </span>
+              )}
               {isOutOfRange && (
                 <span className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-300 border border-rose-500/30 animate-pulse">
                   ⚠️ Signal Out of Range
@@ -227,6 +239,15 @@ export const SignalCard: React.FC<Props> = ({
               <span className="text-slate-400">Target Entry:</span> ₹{signal.entry_price.toFixed(2)}
             </div>
           </div>
+
+          {!mktStatus.is_open && (
+            <div className="mt-2.5 flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2 text-xs text-amber-200">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+              <span>
+                <strong>Market is Closed:</strong> Regular {mktStatus.market} trading session is closed ({mktStatus.trading_hours}). Signal parameters reflect the latest closing prices.
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Clear Metric Grid */}
