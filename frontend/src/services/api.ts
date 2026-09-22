@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus, ScannerSummary } from '../types';
+import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus, ScannerSummary, TradeAutopsyData, AdaptiveShieldData } from '../types';
 
 const client = axios.create({
   baseURL: '/api'
@@ -30,6 +30,14 @@ export const api = {
   closePosition: (id: number) => client.post(`/positions/${id}/close`).then(r => r.data),
   getTrades: (): Promise<TradeData[]> =>
     client.get('/trades').then(r => r.data),
+  getTradeAutopsies: (): Promise<TradeAutopsyData[]> =>
+    client.get('/trades/autopsies').then(r => r.data),
+  getTradeAutopsy: (tradeId: number): Promise<TradeAutopsyData> =>
+    client.get(`/trades/${tradeId}/autopsy`).then(r => r.data),
+  getActiveShields: (): Promise<{ shields: AdaptiveShieldData[] }> =>
+    client.get('/trades/shields').then(r => r.data),
+  clearActiveShields: () =>
+    client.post('/trades/shields/clear').then(r => r.data),
   getRiskStatus: (): Promise<RiskStatus> =>
     client.get('/risk').then(r => r.data),
   toggleKillSwitch: (active: boolean) =>

@@ -185,3 +185,25 @@ class SystemLog(Base):
     module = Column(String(50), nullable=False)
     message = Column(Text, nullable=False)
     metadata_info = Column(JSON, nullable=True)
+
+
+class TradeAutopsy(Base):
+    __tablename__ = "trade_autopsies"
+
+    id = Column(Integer, primary_key=True, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id"), nullable=True, index=True)
+    symbol = Column(String(50), index=True, nullable=False)
+    side = Column(String(10), nullable=False)
+    entry_price = Column(Float, nullable=False)
+    exit_price = Column(Float, nullable=False)
+    stop_loss = Column(Float, nullable=True)
+    target = Column(Float, nullable=True)
+    pnl = Column(Float, default=0.0)
+    pnl_percentage = Column(Float, default=0.0)
+    failure_tag = Column(String(50), nullable=False)
+    root_cause = Column(Text, nullable=False)
+    preventative_rule = Column(Text, nullable=False)
+    severity = Column(String(20), default="MODERATE")  # LOW, MODERATE, CRITICAL
+    metrics = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+

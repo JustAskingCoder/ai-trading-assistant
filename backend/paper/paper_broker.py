@@ -3,10 +3,11 @@ from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 from sqlalchemy.orm import Session
 from backend.database.session import SessionLocal
-from backend.database.models import Portfolio, Position, PaperOrder, Trade
+from backend.database.models import Portfolio, Position, PaperOrder, Trade, TradeAutopsy
 from backend.core.logging import logger
 from backend.core.config import settings
 from backend.risk.risk_manager import risk_manager
+from backend.trading.trade_autopsy import perform_and_save_trade_autopsy, adaptive_shield
 
 
 class PaperBroker:
@@ -46,13 +47,15 @@ class PaperBroker:
             portfolio.daily_pnl = 0.0
 
             db.query(Position).delete()
+            db.query(TradeAutopsy).delete()
+            adaptive_shield.clear_shields()
 
             if risk_manager.kill_switch_active:
                 risk_manager.deactivate_kill_switch(db_session=db)
 
             db.commit()
             db.refresh(portfolio)
-            logger.info("Portfolio reset to ₹%.2f, positions cleared.", settings.INITIAL_CAPITAL)
+            logger.info("Portfolio reset to ₹%.2f, positions and autopsies cleared, adaptive shields reset.", settings.INITIAL_CAPITAL)
             return portfolio
         finally:
             if close_session:
@@ -68,6 +71,7 @@ class PaperBroker:
         target: Optional[float] = None,
         order_type: str = "MARKET",
         window_minutes: Optional[int] = None,
+        exit_reason: Optional[str] = None,
         db: Optional[Session] = None
     ) -> Dict[str, Any]:
         """Execute a paper order and update positions & portfolio balance."""
@@ -128,6 +132,7 @@ class PaperBroker:
                     portfolio.realized_pnl += pnl
                     portfolio.daily_pnl += pnl
 
+                    strat_name = f"Bracket Auto-Exit ({exit_reason})" if exit_reason else "Manual / Strategy"
                     # Record completed trade
                     trade = Trade(
                         symbol=symbol,
@@ -141,9 +146,17 @@ class PaperBroker:
                         pnl_percentage=pnl_pct,
                         entry_time=pos.entry_time if getattr(pos, 'entry_time', None) else order.created_at,
                         exit_time=now,
-                        strategy="Manual / Strategy"
+                        strategy=strat_name
                     )
                     db.add(trade)
+                    db.flush()
+
+                    if pnl < 0:
+                        perform_and_save_trade_autopsy(
+                            trade=trade,
+                            db=db,
+                            exit_reason=exit_reason or "Manual / Strategy Exit"
+                        )
 
                     pos.quantity -= covered_qty
                     rem_qty = quantity - covered_qty
@@ -215,6 +228,7 @@ class PaperBroker:
                     portfolio.realized_pnl += pnl
                     portfolio.daily_pnl += pnl
 
+                    strat_name = f"Bracket Auto-Exit ({exit_reason})" if exit_reason else "Manual / Strategy"
                     # Record completed trade
                     trade = Trade(
                         symbol=symbol,
@@ -228,9 +242,17 @@ class PaperBroker:
                         pnl_percentage=pnl_pct,
                         entry_time=pos.entry_time if getattr(pos, 'entry_time', None) else order.created_at,
                         exit_time=now,
-                        strategy="Manual / Strategy"
+                        strategy=strat_name
                     )
                     db.add(trade)
+                    db.flush()
+
+                    if pnl < 0:
+                        perform_and_save_trade_autopsy(
+                            trade=trade,
+                            db=db,
+                            exit_reason=exit_reason or "Manual / Strategy Exit"
+                        )
 
                     pos.quantity -= sold_qty
                     rem_qty = quantity - sold_qty
@@ -460,7 +482,7 @@ class PaperBroker:
                     }
                     triggers.append(exit_record)
 
-                    # Trigger market exit order
+                    # Trigger market exit order with explicit reason
                     self.place_order(
                         symbol=pos.symbol,
                         side='SELL' if pos.side == 'BUY' else 'BUY',
@@ -469,14 +491,9 @@ class PaperBroker:
                         stop_loss=pos.stop_loss,
                         target=pos.target,
                         order_type='MARKET',
+                        exit_reason=reason,
                         db=db
                     )
-
-                    # Update the last created trade's strategy to f'Bracket Auto-Exit ({reason})'
-                    last_trade = db.query(Trade).filter(Trade.symbol == pos.symbol).order_by(Trade.id.desc()).first()
-                    if last_trade:
-                        last_trade.strategy = f'Bracket Auto-Exit ({reason})'
-                        db.commit()
 
             remaining_positions = db.query(Position).all()
             portfolio.unrealized_pnl = round(sum(p.unrealized_pnl for p in remaining_positions), 2)

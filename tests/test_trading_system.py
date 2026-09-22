@@ -2345,6 +2345,247 @@ def test_api_market_scanners_endpoint():
     assert data["counts"]["total"] >= 1
 
 
+def test_diagnose_trade_failure_scenarios():
+    """Verify all 6 diagnostic failure root-causes in trade_autopsy."""
+    from backend.trading.trade_autopsy import diagnose_trade_failure
+
+    # 1. Chased entry (entered > 1.5x ATR away from EMA20)
+    d1 = diagnose_trade_failure(
+        symbol="TCS",
+        side="BUY",
+        entry_price=4000.0,
+        exit_price=3980.0,
+        stop_loss=3980.0,
+        target=4040.0,
+        pnl=-200.0,
+        pnl_percentage=-0.5,
+        exit_reason="Stop Loss Hit",
+        indicators={"atr": 10.0, "ema20": 3970.0, "vwap": 3970.0, "adx": 25.0, "volume_ratio": 2.0}
+    )
+    assert d1["failure_tag"] == "CHASED_ENTRY"
+    assert d1["severity"] == "CRITICAL"
+    assert "chased" in d1["root_cause"].lower()
+
+    # 2. Counter-Tide Divergence (BUYing when macro benchmark is BEARISH)
+    d2 = diagnose_trade_failure(
+        symbol="RELIANCE",
+        side="BUY",
+        entry_price=2500.0,
+        exit_price=2475.0,
+        stop_loss=2475.0,
+        target=2550.0,
+        pnl=-250.0,
+        pnl_percentage=-1.0,
+        exit_reason="Stop Loss Hit",
+        indicators={"atr": 20.0, "ema20": 2495.0, "adx": 25.0, "volume_ratio": 2.0},
+        market_tide="BEARISH"
+    )
+    assert d2["failure_tag"] == "COUNTER_TIDE_DIVERGENCE"
+    assert d2["severity"] == "CRITICAL"
+
+    # 3. False Breakout on Low Volume (volume ratio < 1.3x)
+    d3 = diagnose_trade_failure(
+        symbol="SBIN",
+        side="BUY",
+        entry_price=800.0,
+        exit_price=792.0,
+        stop_loss=792.0,
+        target=816.0,
+        pnl=-80.0,
+        pnl_percentage=-1.0,
+        exit_reason="Stop Loss Hit",
+        indicators={"atr": 10.0, "ema20": 798.0, "adx": 25.0, "volume_ratio": 1.1}
+    )
+    assert d3["failure_tag"] == "FALSE_BREAKOUT_LOW_VOL"
+    assert "volume" in d3["root_cause"].lower()
+
+    # 4. Tight Stop Shakeout (stop distance < 0.8x ATR)
+    d4 = diagnose_trade_failure(
+        symbol="HDFCBANK",
+        side="BUY",
+        entry_price=1600.0,
+        exit_price=1595.0,
+        stop_loss=1595.0,  # 5 pts = 0.5x ATR (10.0)
+        target=1620.0,
+        pnl=-50.0,
+        pnl_percentage=-0.3,
+        exit_reason="Stop Loss Hit",
+        indicators={"atr": 10.0, "ema20": 1598.0, "adx": 25.0, "volume_ratio": 1.8}
+    )
+    assert d4["failure_tag"] == "TIGHT_STOP_SHAKEOUT"
+
+    # 5. Low ADX / Chop Zone Exhaustion (ADX < 18.0)
+    d5 = diagnose_trade_failure(
+        symbol="WIPRO",
+        side="BUY",
+        entry_price=500.0,
+        exit_price=496.0,
+        stop_loss=490.0,
+        target=520.0,
+        pnl=-40.0,
+        pnl_percentage=-0.8,
+        exit_reason="30-Min Window Expired",
+        indicators={"atr": 10.0, "ema20": 498.0, "adx": 14.5, "volume_ratio": 1.8}
+    )
+    assert d5["failure_tag"] == "CHOP_ZONE_EXHAUSTION"
+
+    # 6. Trend Shift Invalidation
+    d6 = diagnose_trade_failure(
+        symbol="INFY",
+        side="BUY",
+        entry_price=1500.0,
+        exit_price=1495.0,
+        stop_loss=1485.0,
+        target=1530.0,
+        pnl=-50.0,
+        pnl_percentage=-0.33,
+        exit_reason="Trend Shift (VWAP Breakdown)"
+    )
+    assert d6["failure_tag"] == "TREND_SHIFT_REVERSAL"
+
+
+def test_trade_autopsy_and_adaptive_shield_enforcement():
+    """Verify losing trade creates an autopsy, engages adaptive shield, and blocks repetitive entry."""
+    from backend.paper.paper_broker import paper_broker
+    from backend.risk.risk_manager import risk_manager
+    from backend.trading.trade_autopsy import adaptive_shield
+    from backend.database.session import SessionLocal
+    from backend.database.models import TradeAutopsy
+
+    db = SessionLocal()
+    try:
+        adaptive_shield.clear_shields()
+        paper_broker.reset_portfolio(db)
+
+        # Open Long position on REAL_STOCK
+        symbol = "REAL_STOCK"
+        paper_broker.place_order(
+            symbol=symbol,
+            side="BUY",
+            quantity=10,
+            price=100.0,
+            stop_loss=95.0,
+            target=110.0,
+            db=db
+        )
+
+        # Close position at a loss (price = 90.0)
+        paper_broker.place_order(
+            symbol=symbol,
+            side="SELL",
+            quantity=10,
+            price=90.0,
+            stop_loss=95.0,
+            target=110.0,
+            exit_reason="Stop Loss Hit",
+            db=db
+        )
+
+        # Check that TradeAutopsy record was saved
+        autopsy = db.query(TradeAutopsy).filter(TradeAutopsy.symbol == symbol).first()
+        assert autopsy is not None
+        assert autopsy.pnl < 0
+        assert autopsy.failure_tag is not None
+        assert autopsy.preventative_rule is not None
+
+        # Verify Adaptive Failure Shield is engaged for REAL_STOCK
+        is_suppressed, shield_info = adaptive_shield.is_suppressed(symbol)
+        assert is_suppressed is True
+        assert shield_info is not None
+        assert shield_info["symbol"] == symbol
+
+        # Attempt to open another trade on REAL_STOCK -> Must be REJECTED by risk_manager
+        portfolio = paper_broker.get_portfolio(db)
+        approved, qty, reason = risk_manager.evaluate_order(
+            symbol=symbol,
+            side="BUY",
+            entry_price=92.0,
+            stop_loss=88.0,
+            target=100.0,
+            portfolio=portfolio,
+            open_positions_count=0,
+            requested_quantity=5
+        )
+        assert approved is False
+        assert "Adaptive Failure Shield active" in reason
+
+        # Clear shields and verify trade is now allowed
+        adaptive_shield.clear_shields()
+        is_suppressed2, _ = adaptive_shield.is_suppressed(symbol)
+        assert is_suppressed2 is False
+
+        approved2, qty2, _ = risk_manager.evaluate_order(
+            symbol=symbol,
+            side="BUY",
+            entry_price=92.0,
+            stop_loss=88.0,
+            target=100.0,
+            portfolio=portfolio,
+            open_positions_count=0,
+            requested_quantity=5
+        )
+        assert approved2 is True
+        assert qty2 > 0
+
+    finally:
+        adaptive_shield.clear_shields()
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_api_autopsy_and_shield_endpoints():
+    """Verify FastAPI routes for autopsies and adaptive shields."""
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.paper.paper_broker import paper_broker
+    from backend.trading.trade_autopsy import adaptive_shield
+    from backend.database.session import SessionLocal
+
+    client = TestClient(app)
+    db = SessionLocal()
+    try:
+        adaptive_shield.clear_shields()
+        paper_broker.reset_portfolio(db)
+
+        # Create a losing trade
+        sym = "AUTOPSY_API_TEST"
+        paper_broker.place_order(symbol=sym, side="BUY", quantity=5, price=200.0, stop_loss=190.0, target=220.0, db=db)
+        paper_broker.place_order(symbol=sym, side="SELL", quantity=5, price=180.0, stop_loss=190.0, target=220.0, exit_reason="Stop Loss Hit", db=db)
+
+        # 1. GET /api/trades/autopsies
+        res_all = client.get("/api/trades/autopsies")
+        assert res_all.status_code == 200
+        autopsies = res_all.json()
+        assert len(autopsies) >= 1
+        found = next((a for a in autopsies if a["symbol"] == sym), None)
+        assert found is not None
+        trade_id = found["trade_id"]
+
+        # 2. GET /api/trades/{trade_id}/autopsy
+        res_single = client.get(f"/api/trades/{trade_id}/autopsy")
+        assert res_single.status_code == 200
+        assert res_single.json()["symbol"] == sym
+        assert "failure_tag" in res_single.json()
+
+        # 3. GET /api/trades/shields
+        res_shields = client.get("/api/trades/shields")
+        assert res_shields.status_code == 200
+        shields = res_shields.json()["shields"]
+        assert any(s["symbol"] == sym for s in shields)
+
+        # 4. POST /api/trades/shields/clear
+        res_clear = client.post("/api/trades/shields/clear")
+        assert res_clear.status_code == 200
+        res_shields_after = client.get("/api/trades/shields")
+        assert len(res_shields_after.json()["shields"]) == 0
+
+    finally:
+        adaptive_shield.clear_shields()
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+
 
 
 

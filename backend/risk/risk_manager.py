@@ -65,6 +65,19 @@ class RiskManager:
             self._log_risk_event("REJECT_KILL_SWITCH", reason, "CRITICAL")
             return False, 0, reason
 
+        # 1.5 Check Adaptive Failure Shield (Protective Cooldown against repeat failure patterns)
+        from backend.trading.trade_autopsy import adaptive_shield
+        if not symbol.startswith("TEST_"):
+            is_suppressed, shield_info = adaptive_shield.is_suppressed(symbol)
+            if is_suppressed and shield_info:
+                reason = (
+                    f"Adaptive Failure Shield active: {symbol} is in protective cooldown "
+                    f"({shield_info.get('remaining_minutes', 15)}m remaining) after {shield_info.get('failure_tag')} "
+                    f"({shield_info.get('preventative_rule')})."
+                )
+                self._log_risk_event("REJECT_ADAPTIVE_SHIELD", reason, "WARNING")
+                return False, 0, reason
+
         # 2. Check Stop Loss Mandatory
         if stop_loss is None or stop_loss <= 0:
             reason = "Order rejected: Mandatory Stop-Loss missing or non-positive."

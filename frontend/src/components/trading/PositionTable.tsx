@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { PositionData, TradeData } from '../../types';
+import { PositionData, TradeData, TradeAutopsyData, AdaptiveShieldData } from '../../types';
+import { api } from '../../services/api';
+import { TradeAutopsyModal } from './TradeAutopsyModal';
 import { TrendingUp, TrendingDown, Layers, Zap, AlertTriangle, ShieldAlert } from 'lucide-react';
 
 interface Props {
@@ -11,9 +13,23 @@ interface Props {
 
 export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosition, onQuickOrder }) => {
   const [, setTick] = useState(0);
+  const [selectedAutopsy, setSelectedAutopsy] = useState<TradeAutopsyData | null>(null);
+  const [activeShields, setActiveShields] = useState<AdaptiveShieldData[]>([]);
+
   useEffect(() => {
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    const fetchShields = () => {
+      api.getActiveShields()
+        .then(res => setActiveShields(res.shields || []))
+        .catch(() => {});
+    };
+    fetchShields();
+    const shieldInterval = setInterval(fetchShields, 5000);
+    return () => clearInterval(shieldInterval);
   }, []);
 
   const getWindowStatus = (entryTime?: string | null, windowMinutes: number = 30) => {
@@ -216,10 +232,41 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
 
       {/* Completed Trades History */}
       <div className="rounded-xl border border-dark-600 bg-dark-800 p-4 shadow-lg">
-        <div className="flex items-center gap-2 border-b border-dark-700 pb-3">
-          <TrendingUp className="h-4 w-4 text-emerald-400" />
-          <h3 className="font-bold text-white text-sm tracking-tight">Recent Trade History</h3>
+        <div className="flex items-center justify-between border-b border-dark-700 pb-3">
+          <div className="flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-emerald-400" />
+            <h3 className="font-bold text-white text-sm tracking-tight">Recent Trade History</h3>
+          </div>
+          {activeShields.length > 0 && (
+            <span className="inline-flex items-center gap-1 rounded bg-indigo-500/20 px-2 py-0.5 text-[10px] font-bold text-indigo-300 border border-indigo-500/30">
+              🛡️ {activeShields.length} Shield{activeShields.length > 1 ? 's' : ''} Active
+            </span>
+          )}
         </div>
+
+        {activeShields.length > 0 && (
+          <div className="mt-3 mb-1 rounded-lg bg-indigo-950/40 border border-indigo-500/40 p-2.5 flex items-center justify-between text-xs">
+            <div className="flex items-center gap-2">
+              <ShieldAlert className="h-4 w-4 text-indigo-400 shrink-0" />
+              <div>
+                <span className="font-bold text-indigo-200">Adaptive Shield Cooldown:</span>{' '}
+                <span className="text-slate-300 text-[11px]">
+                  {activeShields.map(s => `${s.symbol} (${s.remaining_minutes}m: ${s.failure_tag})`).join(', ')}
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={async () => {
+                await api.clearActiveShields();
+                setActiveShields([]);
+              }}
+              className="ml-2 rounded px-2 py-0.5 text-[10px] font-bold bg-indigo-500/20 hover:bg-indigo-500/40 text-indigo-300 border border-indigo-500/30 transition-colors whitespace-nowrap"
+              title="Manually clear active cooldown shields"
+            >
+              Clear
+            </button>
+          </div>
+        )}
 
         {trades.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-500">No trades recorded yet.</div>
@@ -233,6 +280,7 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                   <th className="py-2">Entry</th>
                   <th className="py-2">Exit</th>
                   <th className="py-2 text-right">P&L</th>
+                  <th className="py-2 text-right">Autopsy</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-dark-700/50">
@@ -247,6 +295,31 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       <td className={`py-2 text-right font-bold ${isProfit ? 'text-trade-green' : 'text-trade-red'}`}>
                         {isProfit ? '+' : ''}₹{t.pnl.toFixed(2)} ({isProfit ? '+' : ''}{t.pnl_percentage}%)
                       </td>
+                      <td className="py-2 text-right">
+                        {!isProfit ? (
+                          <button
+                            onClick={() => {
+                              if (t.autopsy) {
+                                setSelectedAutopsy(t.autopsy);
+                              } else {
+                                api.getTradeAutopsy(t.id).then(setSelectedAutopsy).catch(() => {});
+                              }
+                            }}
+                            className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-bold border transition-colors shadow-sm ${
+                              t.autopsy?.severity === 'CRITICAL'
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 hover:bg-rose-500/40'
+                                : 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/40'
+                            }`}
+                            title={t.autopsy?.root_cause || "Click to inspect trade forensic autopsy"}
+                          >
+                            🔬 {t.autopsy?.failure_tag || 'AUTOPSY'}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20">
+                            ✓ Profit Target
+                          </span>
+                        )}
+                      </td>
                     </tr>
                   );
                 })}
@@ -255,6 +328,12 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
           </div>
         )}
       </div>
+
+      {/* Trade Forensic Autopsy Modal */}
+      <TradeAutopsyModal
+        autopsy={selectedAutopsy}
+        onClose={() => setSelectedAutopsy(null)}
+      />
     </div>
   );
 };

@@ -79,6 +79,36 @@ export interface PositionData {
   opposing_patterns?: string[];
 }
 
+export interface TradeAutopsyData {
+  id: number;
+  trade_id?: number;
+  symbol: string;
+  side: string;
+  entry_price: number;
+  exit_price: number;
+  stop_loss?: number | null;
+  target?: number | null;
+  pnl: number;
+  pnl_percentage: number;
+  failure_tag: string;
+  root_cause: string;
+  preventative_rule: string;
+  severity: 'LOW' | 'MODERATE' | 'CRITICAL';
+  metrics?: Record<string, any> | null;
+  created_at?: string;
+}
+
+export interface AdaptiveShieldData {
+  symbol: string;
+  failure_tag: string;
+  root_cause: string;
+  preventative_rule: string;
+  severity: string;
+  engaged_at: string;
+  expires_at: string;
+  remaining_minutes: number;
+}
+
 export interface TradeData {
   id: number;
   symbol: string;
@@ -93,6 +123,7 @@ export interface TradeData {
   entry_time: string;
   exit_time: string;
   strategy: string;
+  autopsy?: TradeAutopsyData | null;
 }
 
 export interface AIAnalysis {

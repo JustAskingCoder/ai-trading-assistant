@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 from backend.database.session import get_db
-from backend.database.models import Portfolio, Position, PaperOrder, Trade, Signal, RiskEvent
+from backend.database.models import Portfolio, Position, PaperOrder, Trade, Signal, RiskEvent, TradeAutopsy
 from backend.risk.risk_manager import risk_manager
 from backend.paper.paper_broker import paper_broker
 from backend.core.config import settings
@@ -237,6 +237,21 @@ def place_paper_order(req: PaperOrderRequest, db: Session = Depends(get_db)):
 @router.get("/trades")
 def get_trades(limit: int = 100, db: Session = Depends(get_db)):
     trades = db.query(Trade).filter(~Trade.symbol.like("TEST%")).order_by(Trade.exit_time.desc()).limit(limit).all()
+    trade_ids = [t.id for t in trades]
+    autopsies_by_trade_id = {}
+    if trade_ids:
+        autopsies = db.query(TradeAutopsy).filter(TradeAutopsy.trade_id.in_(trade_ids)).all()
+        for a in autopsies:
+            autopsies_by_trade_id[a.trade_id] = {
+                "id": a.id,
+                "failure_tag": a.failure_tag,
+                "root_cause": a.root_cause,
+                "preventative_rule": a.preventative_rule,
+                "severity": a.severity,
+                "metrics": a.metrics,
+                "created_at": a.created_at.isoformat() if a.created_at else None
+            }
+
     return [{
         "id": t.id,
         "symbol": t.symbol,
@@ -250,8 +265,76 @@ def get_trades(limit: int = 100, db: Session = Depends(get_db)):
         "pnl_percentage": t.pnl_percentage,
         "entry_time": t.entry_time.isoformat() if t.entry_time else None,
         "exit_time": t.exit_time.isoformat() if t.exit_time else None,
-        "strategy": t.strategy
+        "strategy": t.strategy,
+        "autopsy": autopsies_by_trade_id.get(t.id)
     } for t in trades]
+
+
+@router.get("/trades/autopsies")
+def get_trade_autopsies(limit: int = 50, db: Session = Depends(get_db)):
+    """Fetch all completed trade autopsy forensic reports."""
+    autopsies = db.query(TradeAutopsy).order_by(TradeAutopsy.created_at.desc()).limit(limit).all()
+    return [{
+        "id": a.id,
+        "trade_id": a.trade_id,
+        "symbol": a.symbol,
+        "side": a.side,
+        "entry_price": a.entry_price,
+        "exit_price": a.exit_price,
+        "stop_loss": a.stop_loss,
+        "target": a.target,
+        "pnl": a.pnl,
+        "pnl_percentage": a.pnl_percentage,
+        "failure_tag": a.failure_tag,
+        "root_cause": a.root_cause,
+        "preventative_rule": a.preventative_rule,
+        "severity": a.severity,
+        "metrics": a.metrics,
+        "created_at": a.created_at.isoformat() if a.created_at else None
+    } for a in autopsies]
+
+
+@router.get("/trades/shields")
+def get_adaptive_shields():
+    """Fetch all active Adaptive Failure Shields preventing repetitive losses."""
+    from backend.trading.trade_autopsy import adaptive_shield
+    return {
+        "shields": adaptive_shield.get_all_active_shields()
+    }
+
+
+@router.post("/trades/shields/clear")
+def clear_adaptive_shields():
+    """Manually clear all active Adaptive Failure Shields."""
+    from backend.trading.trade_autopsy import adaptive_shield
+    adaptive_shield.clear_shields()
+    return {"status": "success", "message": "All adaptive failure shields cleared."}
+
+
+@router.get("/trades/{trade_id}/autopsy")
+def get_trade_autopsy(trade_id: int, db: Session = Depends(get_db)):
+    """Fetch specific autopsy for a trade."""
+    autopsy = db.query(TradeAutopsy).filter(TradeAutopsy.trade_id == trade_id).first()
+    if not autopsy:
+        raise HTTPException(status_code=404, detail="No autopsy found for this trade")
+    return {
+        "id": autopsy.id,
+        "trade_id": autopsy.trade_id,
+        "symbol": autopsy.symbol,
+        "side": autopsy.side,
+        "entry_price": autopsy.entry_price,
+        "exit_price": autopsy.exit_price,
+        "stop_loss": autopsy.stop_loss,
+        "target": autopsy.target,
+        "pnl": autopsy.pnl,
+        "pnl_percentage": autopsy.pnl_percentage,
+        "failure_tag": autopsy.failure_tag,
+        "root_cause": autopsy.root_cause,
+        "preventative_rule": autopsy.preventative_rule,
+        "severity": autopsy.severity,
+        "metrics": autopsy.metrics,
+        "created_at": autopsy.created_at.isoformat() if autopsy.created_at else None
+    }
 
 
 @router.get("/risk")
