@@ -88,7 +88,10 @@ def get_positions(db: Session = Depends(get_db)):
         "entry_time": p.entry_time.isoformat() if getattr(p, "entry_time", None) else None,
         "window_minutes": 10 if p.symbol.startswith("TEST") else (getattr(p, "window_minutes", 30) or 30),
         "unrealized_pnl": round(p.unrealized_pnl, 2),
-        "pnl_percentage": round((p.current_price - p.average_price) / p.average_price * 100.0, 2) if p.average_price > 0 else 0.0
+        "pnl_percentage": round(
+            ((p.current_price - p.average_price) if p.side == "BUY" else (p.average_price - p.current_price))
+            / p.average_price * 100.0, 2
+        ) if p.average_price > 0 else 0.0
     } for p in positions]
 
 
@@ -99,10 +102,11 @@ def close_position(position_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail=f"Position {position_id} not found")
 
     close_price = pos.current_price if (pos.current_price is not None and pos.current_price > 0) else pos.average_price
+    close_side = "BUY" if pos.side == "SELL" else "SELL"
 
     result = paper_broker.place_order(
         symbol=pos.symbol,
-        side="SELL",
+        side=close_side,
         quantity=pos.quantity,
         price=close_price,
         stop_loss=0,
@@ -135,6 +139,12 @@ def get_orders(limit: int = 50, db: Session = Depends(get_db)):
 def place_paper_order(req: PaperOrderRequest, db: Session = Depends(get_db)):
     portfolio = paper_broker.get_portfolio(db)
     open_pos_count = db.query(Position).count()
+    existing_pos = db.query(Position).filter(Position.symbol == req.symbol).first()
+    is_closing = existing_pos and (
+        (req.side.upper() == "SELL" and existing_pos.side == "BUY") or
+        (req.side.upper() == "BUY" and existing_pos.side == "SELL")
+    )
+    effective_pos_count = max(0, open_pos_count - 1) if is_closing else open_pos_count
 
     approved, qty, reason = risk_manager.evaluate_order(
         symbol=req.symbol,
@@ -143,7 +153,7 @@ def place_paper_order(req: PaperOrderRequest, db: Session = Depends(get_db)):
         stop_loss=req.stop_loss,
         target=req.target,
         portfolio=portfolio,
-        open_positions_count=open_pos_count,
+        open_positions_count=effective_pos_count,
         requested_quantity=req.quantity
     )
 

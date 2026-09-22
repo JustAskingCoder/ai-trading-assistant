@@ -80,17 +80,20 @@ class PaperBroker:
             portfolio = self.get_portfolio(db)
             now = datetime.utcnow()
 
+            is_forex = ("USD" in symbol or "EUR" in symbol or "GBP" in symbol)
+            dec = 4 if is_forex else 2
+
             # Directional protection
             if side.upper() == 'BUY':
                 if stop_loss is not None and stop_loss > 0 and stop_loss >= price:
-                    stop_loss = round(price * 0.985, 2)
+                    stop_loss = round(price * 0.985, dec)
                 if target is not None and target > 0 and target <= price:
-                    target = round(price * 1.03, 2)
+                    target = round(price * 1.03, dec)
             elif side.upper() == 'SELL':
                 if stop_loss is not None and stop_loss > 0 and stop_loss <= price:
-                    stop_loss = round(price * 1.015, 2)
+                    stop_loss = round(price * 1.015, dec)
                 if target is not None and target > 0 and target >= price:
-                    target = round(price * 0.97, 2)
+                    target = round(price * 0.97, dec)
 
             # Record Paper Order
             effective_window = window_minutes if window_minutes is not None else (10 if symbol.startswith("TEST") else 30)
@@ -113,11 +116,63 @@ class PaperBroker:
             pos = db.query(Position).filter(Position.symbol == symbol).first()
 
             if side.upper() == "BUY":
-                cost = quantity * price
-                portfolio.available_cash -= cost
-                portfolio.invested_amount += cost
+                if pos and pos.side == "SELL" and pos.quantity > 0:
+                    # Closing or reducing short position
+                    covered_qty = min(quantity, pos.quantity)
+                    pnl = round((pos.average_price - price) * covered_qty, 2)
+                    pnl_pct = round((pos.average_price - price) / pos.average_price * 100.0, 2) if pos.average_price > 0 else 0.0
 
-                if pos:
+                    cost_basis = covered_qty * pos.average_price
+                    portfolio.invested_amount -= cost_basis
+                    portfolio.available_cash += (cost_basis + pnl)
+                    portfolio.realized_pnl += pnl
+                    portfolio.daily_pnl += pnl
+
+                    # Record completed trade
+                    trade = Trade(
+                        symbol=symbol,
+                        side="SELL",  # Short position entry side
+                        quantity=covered_qty,
+                        entry_price=pos.average_price,
+                        exit_price=price,
+                        stop_loss=stop_loss,
+                        target=target,
+                        pnl=pnl,
+                        pnl_percentage=pnl_pct,
+                        entry_time=pos.entry_time if getattr(pos, 'entry_time', None) else order.created_at,
+                        exit_time=now,
+                        strategy="Manual / Strategy"
+                    )
+                    db.add(trade)
+
+                    pos.quantity -= covered_qty
+                    rem_qty = quantity - covered_qty
+                    if pos.quantity <= 0:
+                        db.delete(pos)
+                        pos = None
+
+                    if rem_qty > 0:
+                        rem_cost = rem_qty * price
+                        portfolio.available_cash -= rem_cost
+                        portfolio.invested_amount += rem_cost
+                        new_pos = Position(
+                            symbol=symbol,
+                            side="BUY",
+                            quantity=rem_qty,
+                            average_price=price,
+                            current_price=price,
+                            unrealized_pnl=0.0,
+                            stop_loss=stop_loss,
+                            target=target,
+                            entry_time=now,
+                            window_minutes=effective_window
+                        )
+                        db.add(new_pos)
+                elif pos and pos.side == "BUY":
+                    # Adding to existing long position
+                    cost = quantity * price
+                    portfolio.available_cash -= cost
+                    portfolio.invested_amount += cost
                     new_qty = pos.quantity + quantity
                     total_val = (pos.quantity * pos.average_price) + cost
                     pos.quantity = new_qty
@@ -129,7 +184,11 @@ class PaperBroker:
                     if not pos.entry_time:
                         pos.entry_time = now
                 else:
-                    pos = Position(
+                    # Opening new long position
+                    cost = quantity * price
+                    portfolio.available_cash -= cost
+                    portfolio.invested_amount += cost
+                    new_pos = Position(
                         symbol=symbol,
                         side="BUY",
                         quantity=quantity,
@@ -141,14 +200,14 @@ class PaperBroker:
                         entry_time=now,
                         window_minutes=effective_window
                     )
-                    db.add(pos)
+                    db.add(new_pos)
 
             elif side.upper() == "SELL":
-                # Closing or reducing position
-                if pos and pos.quantity > 0:
+                if pos and pos.side == "BUY" and pos.quantity > 0:
+                    # Closing or reducing long position
                     sold_qty = min(quantity, pos.quantity)
                     pnl = round((price - pos.average_price) * sold_qty, 2)
-                    pnl_pct = round((price - pos.average_price) / pos.average_price * 100.0, 2)
+                    pnl_pct = round((price - pos.average_price) / pos.average_price * 100.0, 2) if pos.average_price > 0 else 0.0
 
                     cost_basis = sold_qty * pos.average_price
                     portfolio.invested_amount -= cost_basis
@@ -159,7 +218,7 @@ class PaperBroker:
                     # Record completed trade
                     trade = Trade(
                         symbol=symbol,
-                        side="BUY",
+                        side="BUY",  # Long position entry side
                         quantity=sold_qty,
                         entry_price=pos.average_price,
                         exit_price=price,
@@ -174,13 +233,67 @@ class PaperBroker:
                     db.add(trade)
 
                     pos.quantity -= sold_qty
+                    rem_qty = quantity - sold_qty
                     if pos.quantity <= 0:
                         db.delete(pos)
+                        pos = None
 
-                remaining = db.query(Position).all()
-                portfolio.unrealized_pnl = round(sum(p.unrealized_pnl for p in remaining), 2)
-                if not remaining:
-                    portfolio.invested_amount = 0.0
+                    if rem_qty > 0:
+                        rem_cost = rem_qty * price
+                        portfolio.available_cash -= rem_cost
+                        portfolio.invested_amount += rem_cost
+                        new_pos = Position(
+                            symbol=symbol,
+                            side="SELL",
+                            quantity=rem_qty,
+                            average_price=price,
+                            current_price=price,
+                            unrealized_pnl=0.0,
+                            stop_loss=stop_loss,
+                            target=target,
+                            entry_time=now,
+                            window_minutes=effective_window
+                        )
+                        db.add(new_pos)
+                elif pos and pos.side == "SELL":
+                    # Adding to existing short position
+                    cost = quantity * price
+                    portfolio.available_cash -= cost
+                    portfolio.invested_amount += cost
+                    new_qty = pos.quantity + quantity
+                    total_val = (pos.quantity * pos.average_price) + cost
+                    pos.quantity = new_qty
+                    pos.average_price = round(total_val / new_qty, 2)
+                    pos.current_price = price
+                    pos.stop_loss = stop_loss
+                    pos.target = target
+                    pos.window_minutes = effective_window
+                    if not pos.entry_time:
+                        pos.entry_time = now
+                else:
+                    # Opening new short position
+                    cost = quantity * price
+                    portfolio.available_cash -= cost
+                    portfolio.invested_amount += cost
+                    new_pos = Position(
+                        symbol=symbol,
+                        side="SELL",
+                        quantity=quantity,
+                        average_price=price,
+                        current_price=price,
+                        unrealized_pnl=0.0,
+                        stop_loss=stop_loss,
+                        target=target,
+                        entry_time=now,
+                        window_minutes=effective_window
+                    )
+                    db.add(new_pos)
+
+            db.flush()
+            remaining = db.query(Position).all()
+            portfolio.unrealized_pnl = round(sum(p.unrealized_pnl for p in remaining), 2)
+            if not remaining:
+                portfolio.invested_amount = 0.0
 
             db.commit()
             logger.info("PaperBroker filled %s order: %d %s @ ₹%.2f", side, quantity, symbol, price)

@@ -1578,4 +1578,110 @@ def test_zerodha_batch_quotes_in_watchlist():
         live_service.data_source = "YFINANCE"
 
 
+def test_short_order_creates_position_and_reflects_in_api():
+    """Verify placing a standalone SELL order creates an open short Position and reflects in /api/positions."""
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.paper.paper_broker import paper_broker
+    from backend.database.session import SessionLocal
+    from backend.database.models import Position
 
+    client = TestClient(app)
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+
+        # 1. Place a standalone SELL order via paper/orders API
+        resp = client.post("/api/paper/orders", json={
+            "symbol": "INFY",
+            "side": "SELL",
+            "quantity": 2,
+            "price": 1000.0,
+            "stop_loss": 1015.0,
+            "target": 970.0,
+            "order_type": "MARKET"
+        })
+        assert resp.status_code == 200
+        order_data = resp.json()
+        assert order_data["status"] == "FILLED"
+        assert order_data["side"] == "SELL"
+
+        # 2. Check position exists in DB with side='SELL'
+        pos = db.query(Position).filter(Position.symbol == "INFY").first()
+        assert pos is not None
+        assert pos.side == "SELL"
+        assert pos.quantity == 2
+        assert pos.average_price == 1000.0
+
+        # 3. Check position reflects in GET /api/positions
+        pos_resp = client.get("/api/positions")
+        assert pos_resp.status_code == 200
+        positions = pos_resp.json()
+        matching = [p for p in positions if p["symbol"] == "INFY"]
+        assert len(matching) == 1
+        assert matching[0]["side"] == "SELL"
+        assert matching[0]["quantity"] == 2
+
+        # 4. Close the short position via API
+        pos_id = matching[0]["id"]
+        close_resp = client.post(f"/api/positions/{pos_id}/close")
+        assert close_resp.status_code == 200
+
+        # 5. Verify position is now removed
+        pos_after = db.query(Position).filter(Position.symbol == "INFY").first()
+        assert pos_after is None
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_short_position_pnl_and_cover():
+    """Verify PnL calculation on short position when price drops (profit) and when covered by BUY."""
+    from backend.paper.paper_broker import paper_broker
+    from backend.database.session import SessionLocal
+    from backend.database.models import Position, Trade
+
+    sym = "TEST_SHORT_TCS"
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        db.query(Trade).filter(Trade.symbol == sym).delete()
+        db.commit()
+
+        # Open short: SELL 2 @ 3000
+        res = paper_broker.place_order(sym, "SELL", 2, 3000.0, stop_loss=3045.0, target=2910.0, db=db)
+        assert res["status"] == "FILLED"
+
+        # Check unrealized PnL when price drops to 2950 (profit +100 for 2 shares)
+        paper_broker.update_market_price(sym, 2950.0, db=db)
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos is not None
+        assert pos.unrealized_pnl == 100.0  # (3000 - 2950) * 2
+
+        # Cover 1 share with BUY @ 2950
+        res_cover = paper_broker.place_order(sym, "BUY", 1, 2950.0, db=db)
+        assert res_cover["status"] == "FILLED"
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos is not None
+        assert pos.quantity == 1
+
+        trade = db.query(Trade).filter(Trade.symbol == sym).order_by(Trade.id.desc()).first()
+        assert trade is not None
+        assert trade.pnl == 50.0  # (3000 - 2950) * 1
+
+        # Cover remaining 1 share with BUY @ 2900
+        paper_broker.place_order(sym, "BUY", 1, 2900.0, db=db)
+        pos_final = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos_final is None
+
+        trade2 = db.query(Trade).filter(Trade.symbol == sym).order_by(Trade.id.desc()).first()
+        assert trade2 is not None
+        assert trade2.pnl == 100.0  # (3000 - 2900) * 1
+
+        port = paper_broker.get_portfolio(db)
+        assert port.realized_pnl == 150.0  # 50 + 100
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.query(Trade).filter(Trade.symbol == sym).delete()
+        db.commit()
+        db.close()
