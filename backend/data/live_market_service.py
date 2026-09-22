@@ -11,6 +11,8 @@ from backend.indicators.engine import calculate_indicators
 from backend.patterns.engine import detect_all_patterns
 from backend.strategies.base_strategy import BreakoutStrategy, MomentumStrategy, TrendFollowingStrategy
 from backend.paper.paper_broker import paper_broker
+from backend.database.session import SessionLocal
+from backend.database.models import Position
 from backend.data.market_simulator import simulator
 from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.core.logging import logger
@@ -600,7 +602,14 @@ class LiveMarketService:
                         rem_quotes = list(executor.map(fetch_fn, remaining_symbols))
                         quotes.extend([q for q in rem_quotes if q is not None])
 
-                return quotes
+                final_z = [q for q in quotes if q is not None]
+                try:
+                    for q in final_z:
+                        if q and "symbol" in q and "price" in q and float(q.get("price", 0)) > 0:
+                            paper_broker.update_market_price(q["symbol"], float(q["price"]))
+                except Exception as sync_e:
+                    logger.debug("Error syncing paper positions from Zerodha quotes: %s", sync_e)
+                return final_z
             except Exception as e:
                 logger.warning("Batch Zerodha watchlist fetch error: %s", e)
 
@@ -611,7 +620,15 @@ class LiveMarketService:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             quotes = list(executor.map(fetch_fn, clean_symbols))
 
-        return [q for q in quotes if q is not None]
+        final_quotes = [q for q in quotes if q is not None]
+        try:
+            for q in final_quotes:
+                if q and "symbol" in q and "price" in q and float(q.get("price", 0)) > 0:
+                    paper_broker.update_market_price(q["symbol"], float(q["price"]))
+        except Exception as sync_e:
+            logger.debug("Error syncing paper positions from watchlist quotes: %s", sync_e)
+
+        return final_quotes
 
     def start(
         self,
@@ -696,6 +713,20 @@ class LiveMarketService:
 
                         # Update paper positions
                         triggers = paper_broker.update_market_price(self._symbol, close_p)
+                        try:
+                            with SessionLocal() as db_pos:
+                                other_positions = db_pos.query(Position).filter(Position.symbol != self._symbol).all()
+                                for opos in other_positions:
+                                    if opos.symbol.startswith("TEST"):
+                                        continue
+                                    cached = self._quote_cache.get(opos.symbol.upper())
+                                    if cached and cached[1] and cached[1].get("price"):
+                                        other_trigs = paper_broker.update_market_price(opos.symbol, float(cached[1]["price"]), db=db_pos)
+                                        if other_trigs:
+                                            triggers.extend(other_trigs)
+                        except Exception as loop_e:
+                            logger.debug("Error updating other positions in stream loop: %s", loop_e)
+
                         if triggers:
                             for evt in triggers:
                                 if evt.get("type") == "BREAKEVEN_TRAILED":

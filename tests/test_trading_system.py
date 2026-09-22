@@ -1588,12 +1588,13 @@ def test_short_order_creates_position_and_reflects_in_api():
 
     client = TestClient(app)
     db = SessionLocal()
+    sym = "TEST_API_INFY"
     try:
         paper_broker.reset_portfolio(db)
 
         # 1. Place a standalone SELL order via paper/orders API
         resp = client.post("/api/paper/orders", json={
-            "symbol": "INFY",
+            "symbol": sym,
             "side": "SELL",
             "quantity": 2,
             "price": 1000.0,
@@ -1607,7 +1608,7 @@ def test_short_order_creates_position_and_reflects_in_api():
         assert order_data["side"] == "SELL"
 
         # 2. Check position exists in DB with side='SELL'
-        pos = db.query(Position).filter(Position.symbol == "INFY").first()
+        pos = db.query(Position).filter(Position.symbol == sym).first()
         assert pos is not None
         assert pos.side == "SELL"
         assert pos.quantity == 2
@@ -1617,7 +1618,7 @@ def test_short_order_creates_position_and_reflects_in_api():
         pos_resp = client.get("/api/positions")
         assert pos_resp.status_code == 200
         positions = pos_resp.json()
-        matching = [p for p in positions if p["symbol"] == "INFY"]
+        matching = [p for p in positions if p["symbol"] == sym]
         assert len(matching) == 1
         assert matching[0]["side"] == "SELL"
         assert matching[0]["quantity"] == 2
@@ -1628,7 +1629,7 @@ def test_short_order_creates_position_and_reflects_in_api():
         assert close_resp.status_code == 200
 
         # 5. Verify position is now removed
-        pos_after = db.query(Position).filter(Position.symbol == "INFY").first()
+        pos_after = db.query(Position).filter(Position.symbol == sym).first()
         assert pos_after is None
     finally:
         paper_broker.reset_portfolio(db)

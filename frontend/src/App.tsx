@@ -131,6 +131,14 @@ export default function App() {
     api.getTrendAnalysis(symbol).then(setTrendAnalysis).catch(() => {});
   }, [symbol]);
 
+  // Periodic background refresh for portfolio & open virtual positions (every 3 seconds)
+  useEffect(() => {
+    const portfolioTimer = setInterval(() => {
+      loadPortfolioData();
+    }, 3000);
+    return () => clearInterval(portfolioTimer);
+  }, []);
+
   // WebSocket Live Stream Connection
   useEffect(() => {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -308,6 +316,26 @@ export default function App() {
   // Sync quotes from MultiAssetWatchlist into App state with deduplication
   const handleWatchlistQuotesUpdate = useCallback((quotes: WatchlistQuote[]) => {
     watchlistQuotesRef.current = quotes;
+
+    // Immediately update open positions with real-time watchlist quote prices
+    setPositions(prevPositions => {
+      if (!prevPositions || prevPositions.length === 0) return prevPositions;
+      return prevPositions.map(pos => {
+        const quote = quotes.find(q => q.symbol === pos.symbol);
+        if (!quote || !quote.price) return pos;
+        const currentP = Number(quote.price);
+        const diff = pos.side === 'BUY' ? (currentP - pos.average_price) : (pos.average_price - currentP);
+        const unrealizedPnl = Number((diff * pos.quantity).toFixed(2));
+        const pnlPct = pos.average_price > 0 ? Number(((diff / pos.average_price) * 100).toFixed(2)) : 0;
+        return {
+          ...pos,
+          current_price: currentP,
+          unrealized_pnl: unrealizedPnl,
+          pnl_percentage: pnlPct
+        };
+      });
+    });
+
     const currentQuote = quotes.find(q => q.symbol === symbol);
     if (!currentQuote) return;
 

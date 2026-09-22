@@ -75,6 +75,23 @@ def reset_portfolio(db: Session = Depends(get_db)):
 
 @router.get("/positions")
 def get_positions(db: Session = Depends(get_db)):
+    from backend.data.live_market_service import live_service
+    positions = db.query(Position).all()
+    for p in positions:
+        if p.symbol.startswith("TEST"):
+            continue
+        try:
+            cached = live_service._quote_cache.get(p.symbol.upper())
+            if cached and cached[1] and cached[1].get("price"):
+                latest_p = float(cached[1]["price"])
+                paper_broker.update_market_price(p.symbol, latest_p, db=db)
+            elif live_service.mode == "LIVE":
+                candles = live_service.get_latest_candles(p.symbol, limit=1)
+                if candles and candles[-1].get("close"):
+                    paper_broker.update_market_price(p.symbol, float(candles[-1]["close"]), db=db)
+        except Exception:
+            pass
+
     positions = db.query(Position).all()
     return [{
         "id": p.id,
