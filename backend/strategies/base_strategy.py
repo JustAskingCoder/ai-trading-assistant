@@ -15,6 +15,49 @@ class BaseStrategy(ABC):
         pass
 
 
+def validate_pattern_alignment(patterns: list, proposed_side: str) -> tuple[bool, float, str]:
+    """
+    Validates that detected price action and technical patterns do not conflict with proposed trade direction,
+    and identifies confirming patterns to boost confidence.
+    Returns: (is_approved: bool, confidence_delta: float, pattern_annotation: str)
+    """
+    conf_delta = 0.0
+    confirming = []
+    conflicting = []
+
+    # Severe candlestick reversals & structural breaks that strictly veto opposite trades
+    # Bull traps for BUY: shooting_star, bearish_engulfing, support_breakdown, vwap_cross_below
+    # Bear traps for SELL: hammer, bullish_engulfing, resistance_breakout, vwap_cross_above
+    severe_bearish_vetos = {"shooting_star", "bearish_engulfing", "support_breakdown", "vwap_cross_below"}
+    severe_bullish_vetos = {"hammer", "bullish_engulfing", "resistance_breakout", "vwap_cross_above"}
+
+    for p in patterns:
+        p_name = p.get("pattern", "")
+        p_label = p_name.replace("_", " ").title()
+        p_dir = p.get("direction", "NEUTRAL")
+
+        if proposed_side == "BUY":
+            if p_name in severe_bearish_vetos:
+                conflicting.append(p_label)
+            elif p_dir == "BUY":
+                confirming.append(p_label)
+        elif proposed_side == "SELL":
+            if p_name in severe_bullish_vetos:
+                conflicting.append(p_label)
+            elif p_dir == "SELL":
+                confirming.append(p_label)
+
+    # Strict Veto: If severe opposing candlestick or structural pattern is detected, reject setup
+    if conflicting:
+        return False, -0.20, f"Vetoed by opposing pattern ({', '.join(conflicting)})"
+
+    if confirming:
+        conf_delta = min(0.10, len(confirming) * 0.04)
+        return True, conf_delta, f"Confirmed by {', '.join(confirming)} pattern"
+
+    return True, 0.0, ""
+
+
 class BreakoutStrategy(BaseStrategy):
     """
     Breakout Strategy:
@@ -72,8 +115,11 @@ class BreakoutStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 48.0 <= rsi <= 68.0 and
             near_ema20
         ):
-            # Calibrated structural brackets: minimum 1.0% stop-loss buffer (or 2.0 * ATR)
-            # and minimum 1.5% target buffer (or 3.0 * ATR) to provide healthy breathing room
+            patterns = detect_all_patterns(df, idx)
+            approved, conf_delta, annotation = validate_pattern_alignment(patterns, "BUY")
+            if not approved:
+                return None
+
             risk_buffer = max(2.0 * atr, close * 0.010)
             reward_buffer = max(3.0 * atr, close * 0.015)
             target = round(close + reward_buffer, 2)
@@ -85,19 +131,22 @@ class BreakoutStrategy(BaseStrategy):
 
             risk = close - stop_loss
             risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
-            patterns = detect_all_patterns(df, idx)
+            confidence = min(0.95, max(0.70, round(0.82 + conf_delta, 2)))
+            reason_text = f"Resistance breakout above {resistance:.2f} with {vol / vol_sma:.1f}x volume expansion and bullish EMA/RSI"
+            if annotation:
+                reason_text += f" | {annotation}"
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "BUY",
-                "confidence": 0.82,
+                "confidence": confidence,
                 "entry_price": round(close, 2),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
-                "reason": f"Resistance breakout above {resistance:.2f} with {vol / vol_sma:.1f}x volume expansion and bullish EMA/RSI",
+                "reason": reason_text,
                 "patterns": patterns,
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
@@ -116,6 +165,11 @@ class BreakoutStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 32.0 <= rsi <= 52.0 and
             near_ema20
         ):
+            patterns = detect_all_patterns(df, idx)
+            approved, conf_delta, annotation = validate_pattern_alignment(patterns, "SELL")
+            if not approved:
+                return None
+
             risk_buffer = max(2.0 * atr, close * 0.010)
             reward_buffer = max(3.0 * atr, close * 0.015)
             target = round(close - reward_buffer, 2)
@@ -127,19 +181,22 @@ class BreakoutStrategy(BaseStrategy):
 
             risk = stop_loss - close
             risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
-            patterns = detect_all_patterns(df, idx)
+            confidence = min(0.95, max(0.70, round(0.82 + conf_delta, 2)))
+            reason_text = f"Support breakdown below {support:.2f} with {vol / vol_sma:.1f}x volume expansion and bearish EMA/RSI"
+            if annotation:
+                reason_text += f" | {annotation}"
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "SELL",
-                "confidence": 0.82,
+                "confidence": confidence,
                 "entry_price": round(close, 2),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
-                "reason": f"Support breakdown below {support:.2f} with {vol / vol_sma:.1f}x volume expansion and bearish EMA/RSI",
+                "reason": reason_text,
                 "patterns": patterns,
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
@@ -207,25 +264,34 @@ class MomentumStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 50.0 <= rsi <= 66.0 and
             near_ema20
         ):
+            patterns = detect_all_patterns(df, idx)
+            approved, conf_delta, annotation = validate_pattern_alignment(patterns, "BUY")
+            if not approved:
+                return None
+
             risk_buffer = max(2.0 * atr, close * 0.010)
             reward_buffer = max(3.0 * atr, close * 0.015)
             stop_loss = round(close - risk_buffer, 2)
             target = round(close + reward_buffer, 2)
             risk = close - stop_loss
             risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
+            confidence = min(0.95, max(0.70, round(0.78 + conf_delta, 2)))
+            reason_text = f"Bullish momentum: MACD positive expansion, RSI {rsi:.1f}, EMA20 > EMA50"
+            if annotation:
+                reason_text += f" | {annotation}"
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "BUY",
-                "confidence": 0.78,
+                "confidence": confidence,
                 "entry_price": round(close, 2),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
-                "reason": f"Bullish momentum: MACD positive expansion, RSI {rsi:.1f}, EMA20 > EMA50",
-                "patterns": detect_all_patterns(df, idx),
+                "reason": reason_text,
+                "patterns": patterns,
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
                     "macd": round(macd, 2) if pd.notnull(macd) else None,
@@ -247,25 +313,34 @@ class MomentumStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 34.0 <= rsi <= 50.0 and
             near_ema20
         ):
+            patterns = detect_all_patterns(df, idx)
+            approved, conf_delta, annotation = validate_pattern_alignment(patterns, "SELL")
+            if not approved:
+                return None
+
             risk_buffer = max(2.0 * atr, close * 0.010)
             reward_buffer = max(3.0 * atr, close * 0.015)
             stop_loss = round(close + risk_buffer, 2)
             target = round(close - reward_buffer, 2)
             risk = stop_loss - close
             risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
+            confidence = min(0.95, max(0.70, round(0.78 + conf_delta, 2)))
+            reason_text = f"Bearish momentum: MACD negative expansion, RSI {rsi:.1f}, EMA20 < EMA50"
+            if annotation:
+                reason_text += f" | {annotation}"
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "SELL",
-                "confidence": 0.78,
+                "confidence": confidence,
                 "entry_price": round(close, 2),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
-                "reason": f"Bearish momentum: MACD negative expansion, RSI {rsi:.1f}, EMA20 < EMA50",
-                "patterns": detect_all_patterns(df, idx),
+                "reason": reason_text,
+                "patterns": patterns,
                 "indicators": {
                     "rsi": round(rsi, 2) if pd.notnull(rsi) else None,
                     "macd": round(macd, 2) if pd.notnull(macd) else None,
@@ -318,6 +393,11 @@ class TrendFollowingStrategy(BaseStrategy):
             curr["close"] > curr["open"] and
             close <= vwap * 1.008
         ):
+            patterns = detect_all_patterns(df, idx)
+            approved, conf_delta, annotation = validate_pattern_alignment(patterns, "BUY")
+            if not approved:
+                return None
+
             risk_buffer = max(2.0 * atr, close * 0.010)
             reward_buffer = max(3.0 * atr, close * 0.015)
             target = round(close + reward_buffer, 2)
@@ -327,19 +407,23 @@ class TrendFollowingStrategy(BaseStrategy):
 
             risk = close - stop_loss
             risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
+            confidence = min(0.95, max(0.70, round(0.76 + conf_delta, 2)))
+            reason_text = f"Bullish pullback trend: Price testing VWAP ({vwap:.2f}) from above, ADX={adx:.1f}, EMA20 > EMA50"
+            if annotation:
+                reason_text += f" | {annotation}"
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "BUY",
-                "confidence": 0.76,
+                "confidence": confidence,
                 "entry_price": round(close, 2),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
-                "reason": f"Bullish pullback trend: Price testing VWAP ({vwap:.2f}) from above, ADX={adx:.1f}, EMA20 > EMA50",
-                "patterns": detect_all_patterns(df, idx),
+                "reason": reason_text,
+                "patterns": patterns,
                 "indicators": {
                     "adx": round(adx, 2) if pd.notnull(adx) else None,
                     "vwap": round(vwap, 2) if pd.notnull(vwap) else None,
@@ -356,6 +440,11 @@ class TrendFollowingStrategy(BaseStrategy):
             curr["close"] < curr["open"] and
             close >= vwap * 0.992
         ):
+            patterns = detect_all_patterns(df, idx)
+            approved, conf_delta, annotation = validate_pattern_alignment(patterns, "SELL")
+            if not approved:
+                return None
+
             risk_buffer = max(2.0 * atr, close * 0.010)
             reward_buffer = max(3.0 * atr, close * 0.015)
             target = round(close - reward_buffer, 2)
@@ -365,19 +454,23 @@ class TrendFollowingStrategy(BaseStrategy):
 
             risk = stop_loss - close
             risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
+            confidence = min(0.95, max(0.70, round(0.76 + conf_delta, 2)))
+            reason_text = f"Bearish rejection trend: Price testing VWAP ({vwap:.2f}) from below, ADX={adx:.1f}, EMA20 < EMA50"
+            if annotation:
+                reason_text += f" | {annotation}"
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
                 "timestamp": str(curr.get("timestamp", "")),
                 "strategy": self.name,
                 "signal": "SELL",
-                "confidence": 0.76,
+                "confidence": confidence,
                 "entry_price": round(close, 2),
                 "stop_loss": stop_loss,
                 "target": target,
                 "risk_reward": risk_reward,
-                "reason": f"Bearish rejection trend: Price testing VWAP ({vwap:.2f}) from below, ADX={adx:.1f}, EMA20 < EMA50",
-                "patterns": detect_all_patterns(df, idx),
+                "reason": reason_text,
+                "patterns": patterns,
                 "indicators": {
                     "adx": round(adx, 2) if pd.notnull(adx) else None,
                     "vwap": round(vwap, 2) if pd.notnull(vwap) else None,

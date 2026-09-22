@@ -990,6 +990,95 @@ def test_bidirectional_trend_following_strategy():
     assert sig_sell["risk_reward"] >= 0.8
 
 
+def test_pattern_veto_bull_and_bear_traps():
+    """Verify that severe opposing candlestick patterns strictly veto conflicting trade setups."""
+    rows = []
+    for i in range(30):
+        rows.append({
+            "symbol": "VETO_TEST",
+            "timestamp": f"2026-01-01 10:{i:02d}:00",
+            "open": 1000.0,
+            "high": 1005.0,
+            "low": 995.0,
+            "close": 1000.0,
+            "volume": 1000,
+            "volume_sma": 1000,
+            "ema20": 1000.0,
+            "ema50": 995.0,
+            "vwap": 1000.0,
+            "rsi": 55.0,
+            "adx": 20.0,
+            "atr": 5.0
+        })
+
+    # 1. Breakout BUY with Shooting Star (Bull trap) -> Must be vetoed (returns None)
+    df_trap_buy = pd.DataFrame(rows)
+    df_trap_buy.loc[28, "close"] = 1002.0
+    df_trap_buy.loc[29, "open"] = 1006.0
+    df_trap_buy.loc[29, "high"] = 1020.0  # upper wick = 12
+    df_trap_buy.loc[29, "close"] = 1008.0  # body = 2
+    df_trap_buy.loc[29, "low"] = 1007.8   # lower wick = 0.2 (<= 0.2 * body)
+    df_trap_buy.loc[29, "volume"] = 1500
+    df_trap_buy.loc[29, "ema20"] = 1002.0
+    df_trap_buy.loc[29, "ema50"] = 995.0
+    df_trap_buy.loc[29, "rsi"] = 58.0
+
+    strat_brk = BreakoutStrategy()
+    sig_vetoed_buy = strat_brk.evaluate(df_trap_buy, -1)
+    assert sig_vetoed_buy is None
+
+    # 2. TrendFollowing SELL with Hammer (Bear trap) -> Must be vetoed (returns None)
+    df_trap_sell = pd.DataFrame(rows)
+    df_trap_sell.loc[29, "vwap"] = 1000.0
+    df_trap_sell.loc[29, "open"] = 998.0
+    df_trap_sell.loc[29, "close"] = 996.0  # body = 2
+    df_trap_sell.loc[29, "high"] = 998.1  # upper wick = 0.1 (<= 0.2 * body)
+    df_trap_sell.loc[29, "low"] = 990.0   # lower wick = 6 (>= 2 * body)
+    df_trap_sell.loc[29, "ema20"] = 995.0
+    df_trap_sell.loc[29, "ema50"] = 1005.0
+    df_trap_sell.loc[29, "adx"] = 22.0
+
+    strat_trd = TrendFollowingStrategy()
+    sig_vetoed_sell = strat_trd.evaluate(df_trap_sell, -1)
+    assert sig_vetoed_sell is None
+
+
+def test_pattern_confluence_boosts_confidence():
+    """Verify confirming pattern boosts confidence score and annotates reason."""
+    strat = BreakoutStrategy()
+    rows = []
+    for i in range(30):
+        rows.append({
+            "symbol": "CONF_TEST",
+            "timestamp": f"2026-01-01 10:{i:02d}:00",
+            "open": 1000.0,
+            "high": 1005.0,
+            "low": 995.0,
+            "close": 1000.0,
+            "volume": 1000,
+            "volume_sma": 1000,
+            "ema20": 1000.0,
+            "ema50": 995.0,
+            "rsi": 55.0,
+            "adx": 20.0,
+            "atr": 5.0
+        })
+
+    df = pd.DataFrame(rows)
+    df.loc[28, "close"] = 1002.0
+    df.loc[29, "close"] = 1008.0  # resistance breakout confirmed!
+    df.loc[29, "volume"] = 1500
+    df.loc[29, "ema20"] = 1002.0
+    df.loc[29, "ema50"] = 995.0
+    df.loc[29, "rsi"] = 58.0
+
+    sig = strat.evaluate(df, -1)
+    assert sig is not None
+    assert sig["confidence"] >= 0.82
+    assert "Confirmed by" in sig["reason"]
+    assert any(p["pattern"] == "resistance_breakout" for p in sig["patterns"])
+
+
 def test_risk_manager_min_share_sizing_for_expensive_stocks():
     """Verify ideal_quantity defaults to 1 share minimal for stocks > ₹1,000 on ₹10k capital."""
     from backend.core.config import settings

@@ -144,6 +144,7 @@ export interface WatchlistQuote {
   strategy?: string;
   confidence?: number;
   suggested_window?: number;
+  patterns?: Pattern[];
 }
 
 export interface TrendAnalysis {

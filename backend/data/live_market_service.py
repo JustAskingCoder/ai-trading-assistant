@@ -521,6 +521,7 @@ class LiveMarketService:
                 "strategy": strategy_name,
                 "confidence": confidence,
                 "market": market,
+                "patterns": strat_sig.get("patterns", []) if strat_sig else (detect_all_patterns(ind_df, -1) if len(ind_df) >= 20 else []),
                 "indicators": {
                     "rsi": round(float(last_candle["rsi"]), 2) if pd.notnull(last_candle.get("rsi")) else None,
                     "ema20": round(float(last_candle["ema20"]), dec) if pd.notnull(last_candle.get("ema20")) else None,
@@ -559,6 +560,7 @@ class LiveMarketService:
                 "strategy": "Consolidation",
                 "confidence": 0.50,
                 "market": market,
+                "patterns": [],
                 "indicators": {},
                 "timestamp": datetime.now().isoformat()
             }

@@ -469,6 +469,24 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                       Recommended Action
                     </div>
                     {renderActionBanner(item.action, item.quantity)}
+                    {item.patterns && item.patterns.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {item.patterns.slice(0, 2).map((p, pIdx) => (
+                          <span
+                            key={pIdx}
+                            className={`text-[9px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-tight ${
+                              p.direction === 'BUY'
+                                ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                : p.direction === 'SELL'
+                                ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                                : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                            }`}
+                          >
+                            {p.pattern.replace(/_/g, ' ')}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {/* Key Trade Parameters: SL, TP, Target, Risk */}
@@ -604,7 +622,27 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
 
                     {/* Action Decision */}
                     <td className="px-4 py-3.5 text-center">
-                      {renderActionBanner(item.action, item.quantity)}
+                      <div className="flex flex-col items-center gap-1">
+                        {renderActionBanner(item.action, item.quantity)}
+                        {item.patterns && item.patterns.length > 0 && (
+                          <div className="flex flex-wrap justify-center gap-1">
+                            {item.patterns.slice(0, 1).map((p, pIdx) => (
+                              <span
+                                key={pIdx}
+                                className={`text-[8px] font-bold px-1.5 py-0.5 rounded border uppercase tracking-tight ${
+                                  p.direction === 'BUY'
+                                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                                    : p.direction === 'SELL'
+                                    ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                                    : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                                }`}
+                              >
+                                {p.pattern.replace(/_/g, ' ')}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </td>
 
                     {/* Entry Zone */}
