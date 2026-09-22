@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from './services/api';
-import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus } from './types';
+import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus, TrendAnalysis } from './types';
 import { CandlestickChart } from './components/charts/CandlestickChart';
 import { PortfolioCard } from './components/dashboard/PortfolioCard';
 import { SignalCard } from './components/dashboard/SignalCard';
@@ -23,6 +23,7 @@ export default function App() {
   const [positions, setPositions] = useState<PositionData[]>([]);
   const [trades, setTrades] = useState<TradeData[]>([]);
   const [riskStatus, setRiskStatus] = useState<RiskStatus | null>(null);
+  const [trendAnalysis, setTrendAnalysis] = useState<TrendAnalysis | null>(null);
 
   const [activeSignal, setActiveSignal] = useState<Signal | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
@@ -103,13 +104,14 @@ export default function App() {
   // Load initial data
   const fetchData = async () => {
     try {
-      const [c, p, pos, tr, r, sim] = await Promise.all([
+      const [c, p, pos, tr, r, sim, trnd] = await Promise.all([
         api.getCandles(symbol, '5m', 200),
         api.getPortfolio(),
         api.getPositions(),
         api.getTrades(),
         api.getRiskStatus(),
-        api.getSimulatorStatus().catch(() => null)
+        api.getSimulatorStatus().catch(() => null),
+        api.getTrendAnalysis(symbol).catch(() => null)
       ]);
       setCandles(c);
       setPortfolio(p);
@@ -117,6 +119,7 @@ export default function App() {
       setTrades(tr);
       setRiskStatus(r);
       if (sim) setSimRunning(sim.is_running && !sim.is_paused);
+      if (trnd) setTrendAnalysis(trnd);
     } catch (e) {
       console.error('Error fetching initial data:', e);
     }
@@ -125,6 +128,7 @@ export default function App() {
   useEffect(() => {
     fetchData();
     api.getZerodhaStatus().then(setZerodhaStatus).catch(() => {});
+    api.getTrendAnalysis(symbol).then(setTrendAnalysis).catch(() => {});
   }, [symbol]);
 
   // WebSocket Live Stream Connection
@@ -146,10 +150,10 @@ export default function App() {
           loadPortfolioData();
         } else if (msg.type === 'AUTO_EXIT_TRIGGERED') {
           const data = msg.data || msg;
-          if (data.reason === '10-Min Window Expired') {
+          if (data.reason && data.reason.includes('Window Expired')) {
             setOrderAlert({
               type: 'error',
-              message: `⏰ 10-Min Window Expired! Auto-exited ${data.quantity} shares of ${data.symbol} @ ₹${data.exit_price?.toFixed(2)} (${data.pnl >= 0 ? '+' : ''}₹${data.pnl?.toFixed(2)})`
+              message: `⏰ ${data.reason}! Auto-exited ${data.quantity} shares of ${data.symbol} @ ₹${data.exit_price?.toFixed(2)} (${data.pnl >= 0 ? '+' : ''}₹${data.pnl?.toFixed(2)})`
             });
             loadPortfolioData();
           } else {
@@ -287,6 +291,7 @@ export default function App() {
         console.warn('Error setting live market mode symbol:', err);
       }
     }
+    api.getTrendAnalysis(newSym).then(setTrendAnalysis).catch(() => {});
     try {
       const [c] = await Promise.all([
         api.getCandles(newSym, '5m', 200),
@@ -383,7 +388,8 @@ export default function App() {
         price: p,
         stop_loss: sl,
         target: tgt,
-        order_type: 'MARKET'
+        order_type: 'MARKET',
+        window_minutes: quote.suggested_window || 30
       });
       await loadPortfolioData();
       const priceDisplay = isForex
@@ -458,6 +464,7 @@ export default function App() {
     const dec = isForex ? 4 : 2;
     const riskAmt = Number((latestP * 0.010).toFixed(dec));
     const rewardAmt = Math.max(riskAmt * 1.5, Number((latestP * 0.015).toFixed(dec)));
+    const winMin = trendAnalysis?.suggested_window_minutes || 30;
     setSelectedSignalForOrder({
       symbol,
       timestamp: new Date().toISOString(),
@@ -468,7 +475,8 @@ export default function App() {
       stop_loss: Number((latestP - riskAmt).toFixed(dec)),
       target: Number((latestP + rewardAmt).toFixed(dec)),
       risk_reward: 1.5,
-      reason: 'Manual Virtual Trade (1.0% SL, 1.5% Target Breathing Room)'
+      reason: `Manual Virtual Trade (${winMin}m Window, 1.0% SL, 1.5% Target)`,
+      suggested_window: winMin
     });
     setOrderModalOpen(true);
   };
@@ -498,8 +506,10 @@ export default function App() {
     target: number;
     order_type?: string;
     quantity?: number;
+    window_minutes?: number;
   }): Promise<{ success: boolean; data?: any; error?: string }> => {
     try {
+      const winMin = orderData.window_minutes || trendAnalysis?.suggested_window_minutes || 30;
       const res = await api.placePaperOrder({
         symbol: orderData.symbol,
         side: orderData.side,
@@ -507,7 +517,8 @@ export default function App() {
         stop_loss: orderData.stop_loss,
         target: orderData.target,
         order_type: orderData.order_type || 'MARKET',
-        quantity: orderData.quantity
+        quantity: orderData.quantity,
+        window_minutes: winMin
       });
       await loadPortfolioData();
       const isForex = orderData.symbol.includes('USD') || orderData.symbol.includes('EUR') || orderData.symbol.includes('GBP');
@@ -516,7 +527,7 @@ export default function App() {
         : `₹${Number(orderData.price).toFixed(2)}`;
       setOrderAlert({
         type: 'success',
-        message: `✅ Order Filled! ${orderData.side} ${orderData.quantity || 1} ${isForex ? 'unit' : 'shares'} of ${orderData.symbol} @ ${priceDisplay}. Active in Open Virtual Positions below.`
+        message: `✅ Order Filled! ${orderData.side} ${orderData.quantity || 1} ${isForex ? 'unit' : 'shares'} of ${orderData.symbol} @ ${priceDisplay} (${winMin}m Window). Active in Open Virtual Positions below.`
       });
       return { success: true, data: res };
     } catch (err: any) {
@@ -853,18 +864,20 @@ export default function App() {
             <SignalCard
               signal={activeSignal}
               symbol={symbol}
+              trendAnalysis={trendAnalysis}
               onQuickOrder={handleQuickOrder}
               onAnalyzeAI={handleAnalyzeAI}
               onPaperTrade={handlePaperOrder}
               onIgnore={() => setActiveSignal(null)}
-              onDirectOrder={async (signal, qty) => {
+              onDirectOrder={async (signal, qty, winMin) => {
                 return await handleDirectOrder({
                   symbol: signal.symbol,
                   side: signal.signal,
                   price: signal.entry_price,
                   stop_loss: signal.stop_loss,
                   target: signal.target,
-                  quantity: qty
+                  quantity: qty,
+                  window_minutes: winMin || trendAnalysis?.suggested_window_minutes || 30
                 });
               }}
             />
@@ -894,6 +907,7 @@ export default function App() {
       <PaperOrderModal
         isOpen={orderModalOpen}
         signal={selectedSignalForOrder}
+        suggestedWindowMinutes={trendAnalysis?.suggested_window_minutes || 30}
         onClose={() => setOrderModalOpen(false)}
         onSubmit={handleOrderSubmit}
       />

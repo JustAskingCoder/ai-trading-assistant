@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Signal } from '../../types';
-import { Sparkles, ArrowUpRight, Zap, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Signal, TrendAnalysis } from '../../types';
+import { Sparkles, ArrowUpRight, Zap, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react';
 import { api } from '../../services/api';
 
 interface TradeFeedback {
@@ -12,16 +12,18 @@ interface TradeFeedback {
 interface Props {
   signal: Signal | null;
   symbol?: string;
+  trendAnalysis?: TrendAnalysis | null;
   onQuickOrder?: () => void;
   onAnalyzeAI: (signal: Signal) => void;
   onPaperTrade: (signal: Signal) => void;
   onIgnore: () => void;
-  onDirectOrder?: (signal: Signal, qty: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+  onDirectOrder?: (signal: Signal, qty: number, windowMinutes?: number) => Promise<{ success: boolean; data?: any; error?: string }>;
 }
 
 export const SignalCard: React.FC<Props> = ({
   signal,
   symbol,
+  trendAnalysis,
   onQuickOrder,
   onAnalyzeAI,
   onPaperTrade,
@@ -35,6 +37,10 @@ export const SignalCard: React.FC<Props> = ({
     setFeedback(null);
   }, [signal?.symbol, signal?.timestamp, signal?.signal]);
 
+  const effectiveWindow = signal?.suggested_window || trendAnalysis?.suggested_window_minutes || 30;
+  const windowLabel = trendAnalysis?.suggested_window_label || `${effectiveWindow}m Window`;
+  const trendLabel = trendAnalysis?.trend_label || 'Consolidation / Setup';
+
   if (!signal) {
     return (
       <div className="rounded-2xl border border-dark-600 bg-dark-800/95 p-5 shadow-xl backdrop-blur">
@@ -43,22 +49,32 @@ export const SignalCard: React.FC<Props> = ({
             <div className="flex items-center gap-2">
               <span className="flex h-2.5 w-2.5 rounded-full bg-slate-400"></span>
               <h3 className="text-sm font-extrabold tracking-wide text-white uppercase">
-                AWAITING STRATEGY SETUP (CONSOLIDATION)
+                AWAITING STRATEGY SETUP ({trendLabel.toUpperCase()})
               </h3>
               <span className="rounded bg-dark-700 px-2 py-0.5 text-[10px] font-bold text-slate-300 border border-dark-600 uppercase">
                 {symbol || 'MARKET'}
               </span>
+              {trendAnalysis && (
+                <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[10px] font-bold text-indigo-300 border border-indigo-500/20">
+                  {trendAnalysis.regime}
+                </span>
+              )}
             </div>
             <p className="text-xs text-slate-400">
-              Monitoring 20 EMA pullback & resistance breakout conditions for {symbol || 'active asset'}.
+              {trendAnalysis?.rationale || `Monitoring 20 EMA pullback & resistance breakout conditions for ${symbol || 'active asset'}.`}
             </p>
             <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px] text-slate-400">
               <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-dark-700">
                 🛡 Min 1.2 R:R Protection
               </span>
-              <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-dark-700">
-                ⏱ 10-Minute Scalp Window
+              <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-sky-500/30 text-sky-300 font-semibold">
+                ⏱ {windowLabel}
               </span>
+              {trendAnalysis?.indicators?.adx && (
+                <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-indigo-500/30 text-indigo-300">
+                  ADX {trendAnalysis.indicators.adx.toFixed(1)} · ATR ₹{trendAnalysis.indicators.atr?.toFixed(2) || '—'}
+                </span>
+              )}
               <span className="rounded-full bg-dark-900/80 px-2.5 py-0.5 border border-dark-700">
                 📊 1-Share Sizing
               </span>
@@ -70,7 +86,7 @@ export const SignalCard: React.FC<Props> = ({
               className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-indigo-950/40 transition-all active:scale-95 shrink-0"
             >
               <Zap className="h-4 w-4 fill-current" />
-              <span>⚡ PLACE QUICK SCALP TRADE (10m Window)</span>
+              <span>⚡ PLACE QUICK TRADE ({effectiveWindow}m Window)</span>
             </button>
           )}
         </div>
@@ -91,7 +107,7 @@ export const SignalCard: React.FC<Props> = ({
     try {
       let result: { success: boolean; data?: any; error?: string };
       if (onDirectOrder) {
-        result = await onDirectOrder(signal, qty);
+        result = await onDirectOrder(signal, qty, effectiveWindow);
       } else {
         const res = await api.placePaperOrder({
           symbol: signal.symbol,
@@ -99,7 +115,8 @@ export const SignalCard: React.FC<Props> = ({
           price: signal.entry_price,
           stop_loss: signal.stop_loss,
           target: signal.target,
-          order_type: 'MARKET'
+          order_type: 'MARKET',
+          window_minutes: effectiveWindow
         });
         result = { success: true, data: res };
       }
@@ -111,7 +128,7 @@ export const SignalCard: React.FC<Props> = ({
         const tgt = signal.target.toFixed(2);
         setFeedback({
           type: 'success',
-          message: `✓ Trade Successful! Filled ${filledQty} ${Number(filledQty) === 1 ? 'share' : 'shares'} @ ₹${filledPrice} (Stop Loss: ₹${sl}, Target: ₹${tgt})`,
+          message: `✓ Trade Successful! Filled ${filledQty} ${Number(filledQty) === 1 ? 'share' : 'shares'} @ ₹${filledPrice} (SL: ₹${sl}, Target: ₹${tgt} · ${effectiveWindow}m Window)`,
           orderId: result.data?.order_id
         });
       } else {
@@ -142,12 +159,14 @@ export const SignalCard: React.FC<Props> = ({
               <span className="rounded bg-dark-700 px-2 py-0.5 text-xs font-semibold text-slate-300 border border-dark-600">
                 {signal.strategy}
               </span>
-              <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 border border-amber-500/20">
-                ⏱ 10m Max Window
+              <span className="flex items-center gap-1 rounded bg-sky-500/10 px-2 py-0.5 text-[11px] font-bold text-sky-300 border border-sky-500/20">
+                ⏱ {effectiveWindow}m Window
               </span>
-              <span className="rounded bg-sky-500/10 px-2 py-0.5 text-[11px] font-medium text-sky-300 border border-sky-500/20">
-                🎯 10m Scalp Target
-              </span>
+              {trendAnalysis && (
+                <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-300 border border-indigo-500/20">
+                  📈 {trendAnalysis.trend_label}
+                </span>
+              )}
               <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-300 border border-indigo-500/20">
                 🛡 Structural SL
               </span>
@@ -186,8 +205,8 @@ export const SignalCard: React.FC<Props> = ({
                 }`}
               >
                 {isBuy
-                  ? `RECOMMENDED ACTION: BUY ${qty} SHARE (Scalp Target: +₹${targetProfitRupees} · 10m Window)`
-                  : `RECOMMENDED ACTION: SELL ${qty} SHARE (Short Scalp: +₹${targetProfitRupees} · 10m Window)`}
+                  ? `RECOMMENDED ACTION: BUY ${qty} SHARE (Target: +₹${targetProfitRupees} · ${effectiveWindow}m Window)`
+                  : `RECOMMENDED ACTION: SELL ${qty} SHARE (Target: +₹${targetProfitRupees} · ${effectiveWindow}m Window)`}
               </div>
             </div>
             <div className="text-xs font-semibold text-slate-300 sm:text-right">

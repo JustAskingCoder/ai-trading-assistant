@@ -16,15 +16,16 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
     return () => clearInterval(interval);
   }, []);
 
-  const getWindowStatus = (entryTime?: string | null) => {
-    if (!entryTime) return { text: '⏱ 10m Max', style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+  const getWindowStatus = (entryTime?: string | null, windowMinutes: number = 30) => {
+    const totalSec = Math.max(60, (windowMinutes || 30) * 60);
+    if (!entryTime) return { text: `⏱ ${windowMinutes || 30}m Max`, style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
     const elapsedSec = Math.floor((Date.now() - new Date(entryTime).getTime()) / 1000);
-    const remSec = Math.max(0, 600 - elapsedSec);
+    const remSec = Math.max(0, totalSec - elapsedSec);
     const mins = Math.floor(remSec / 60);
     const secs = remSec % 60;
     const text = `⏱ ${mins}m ${String(secs).padStart(2, '0')}s left`;
-    if (remSec > 300) return { text, style: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
-    if (remSec > 120) return { text, style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
+    if (remSec > totalSec * 0.5) return { text, style: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' };
+    if (remSec > totalSec * 0.2) return { text, style: 'bg-amber-500/20 text-amber-300 border-amber-500/30' };
     return { text, style: 'bg-rose-500/20 text-rose-300 border-rose-500/30 animate-pulse font-black' };
   };
 
@@ -68,7 +69,7 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
               <tbody className="divide-y divide-dark-700/50">
                 {positions.map(p => {
                   const isProfit = (p.unrealized_pnl ?? 0) >= 0;
-                  const windowStatus = getWindowStatus(p.entry_time);
+                  const windowStatus = getWindowStatus(p.entry_time, p.window_minutes || 30);
                   const isForex = p.symbol.includes('USD') || p.symbol.includes('EUR') || p.symbol.includes('GBP');
                   const prefix = isForex ? (p.symbol.includes('INR') ? '₹' : '') : '₹';
                   const dec = isForex ? 4 : 2;

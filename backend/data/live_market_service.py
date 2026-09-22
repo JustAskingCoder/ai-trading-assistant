@@ -525,6 +525,7 @@ class LiveMarketService:
                     "ema50": round(float(last_candle["ema50"]), dec) if pd.notnull(last_candle.get("ema50")) else None,
                     "vwap": round(float(last_candle["vwap"]), dec) if pd.notnull(last_candle.get("vwap")) else None,
                 },
+                "suggested_window": 45 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 35.0) else (30 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 22.0) else 15),
                 "timestamp": str(last_candle.get("timestamp", datetime.now().isoformat()))
             }
             self._quote_cache[cache_key] = (now_ts, quote_payload)
@@ -750,6 +751,128 @@ class LiveMarketService:
             logger.info("LiveMarketService stream loop cancelled.")
         finally:
             self._task = None
+
+    def get_trend_analysis(self, symbol: str, interval: str = "5m") -> Dict[str, Any]:
+        """Analyze multi-factor trend and derive mathematically calibrated suggested trade window."""
+        clean_sym = symbol.strip().upper().replace("/", "").replace(" ", "").replace("_", "")
+        name = SYMBOL_NAMES.get(clean_sym, symbol)
+        candles = self.get_latest_candles(symbol, interval=interval, limit=60)
+
+        if not candles or len(candles) < 5:
+            return {
+                "symbol": clean_sym,
+                "name": name,
+                "price": 0.0,
+                "trend": "CONSOLIDATION",
+                "trend_label": "Consolidation Range",
+                "regime": "Range-bound Consolidation",
+                "indicators": {},
+                "day_range": {"high": 0.0, "low": 0.0, "open": 0.0},
+                "velocity": {"candles_for_1pct": 6, "est_minutes_for_target": 30},
+                "suggested_window_minutes": 30,
+                "suggested_window_label": "30 Minutes (Default Standard)",
+                "rationale": "Insufficient historical candles; defaulting to standard 30-minute swing window."
+            }
+
+        df = pd.DataFrame(candles)
+        last = df.iloc[-1]
+        close = float(last["close"])
+        open_p = float(last["open"])
+        high_p = float(df["high"].max())
+        low_p = float(df["low"].min())
+
+        ema20 = float(last["ema20"]) if pd.notnull(last.get("ema20")) else close
+        ema50 = float(last["ema50"]) if pd.notnull(last.get("ema50")) else close
+        rsi = float(last["rsi"]) if pd.notnull(last.get("rsi")) else 50.0
+        adx = float(last["adx"]) if pd.notnull(last.get("adx")) else 20.0
+        atr = float(last["atr"]) if pd.notnull(last.get("atr")) else (close * 0.005)
+        vwap = float(last["vwap"]) if pd.notnull(last.get("vwap")) else close
+
+        # Trend Direction
+        if close > ema20 > ema50 and rsi > 52 and (vwap == 0 or close >= vwap):
+            trend = "BULLISH_EXPANSION"
+            trend_label = "Bullish Trend Expansion"
+        elif close < ema20 < ema50 and rsi < 48 and (vwap == 0 or close <= vwap):
+            trend = "BEARISH_EXPANSION"
+            trend_label = "Bearish Trend Expansion"
+        elif close < ema20 and ema20 > ema50:
+            trend = "PULLBACK_TEST"
+            trend_label = "Bullish Pullback Test"
+        elif close > ema20 and ema20 < ema50:
+            trend = "COUNTER_BOUNCE"
+            trend_label = "Bearish Rejection Bounce"
+        else:
+            trend = "CONSOLIDATION"
+            trend_label = "Consolidation Range"
+
+        # Regime based on ADX
+        if adx >= 35.0:
+            regime = "Strong Directional Trend"
+        elif adx >= 22.0:
+            regime = "Moderate Trend Momentum"
+        else:
+            regime = "Range-bound Consolidation"
+
+        # Volatility & Target Velocity
+        atr_pct = (atr / close) * 100.0 if close > 0 else 0.2
+        candles_for_1pct = max(2, round(1.0 / (atr_pct + 1e-6)))
+        est_minutes = candles_for_1pct * 5
+
+        # Suggested Trade Holding Window
+        if adx >= 35.0 and trend in ["BULLISH_EXPANSION", "BEARISH_EXPANSION"]:
+            suggested_window = 45
+            window_label = "45 Minutes (Trend Ride)"
+            rationale = (
+                f"Strong directional trend (ADX {adx:.1f}) in {trend_label}. "
+                f"45 minutes (9 candles) allows the directional wave to expand toward targets without premature exit."
+            )
+        elif adx >= 22.0 or trend in ["PULLBACK_TEST", "COUNTER_BOUNCE"]:
+            suggested_window = 30
+            window_label = "30 Minutes (Pullback Swing)"
+            rationale = (
+                f"Moderate momentum (ADX {adx:.1f}) in {trend_label} with ATR ₹{atr:.2f} ({atr_pct:.2f}%/candle). "
+                f"Requires ~{candles_for_1pct} candles (~{est_minutes} mins) for structural completion."
+            )
+        else:
+            suggested_window = 15
+            window_label = "15 Minutes (Scalp Window)"
+            rationale = (
+                f"Range-bound consolidation (ADX {adx:.1f}). "
+                f"15-minute quick scalp window prevents holding during prolonged flat consolidation."
+            )
+
+        is_forex = get_market_category(symbol) == "FOREX"
+        dec = 4 if is_forex else 2
+
+        return {
+            "symbol": clean_sym,
+            "name": name,
+            "price": round(close, dec),
+            "trend": trend,
+            "trend_label": trend_label,
+            "regime": regime,
+            "indicators": {
+                "adx": round(adx, 1),
+                "rsi": round(rsi, 1),
+                "atr": round(atr, dec),
+                "atr_pct": round(atr_pct, 2),
+                "ema20": round(ema20, dec),
+                "ema50": round(ema50, dec),
+                "vwap": round(vwap, dec),
+            },
+            "day_range": {
+                "high": round(high_p, dec),
+                "low": round(low_p, dec),
+                "open": round(open_p, dec)
+            },
+            "velocity": {
+                "candles_for_1pct": candles_for_1pct,
+                "est_minutes_for_target": est_minutes
+            },
+            "suggested_window_minutes": suggested_window,
+            "suggested_window_label": window_label,
+            "rationale": rationale
+        }
 
 
 live_service = LiveMarketService()

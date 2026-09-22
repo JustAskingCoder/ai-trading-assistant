@@ -22,6 +22,14 @@ def init_db():
                 conn.execute(text("ALTER TABLE positions ADD COLUMN target FLOAT"))
             if "entry_time" not in existing_cols:
                 conn.execute(text("ALTER TABLE positions ADD COLUMN entry_time TIMESTAMP"))
+            if "window_minutes" not in existing_cols:
+                conn.execute(text("ALTER TABLE positions ADD COLUMN window_minutes INTEGER DEFAULT 30"))
+
+            orders_res = conn.execute(text("PRAGMA table_info(paper_orders)")).fetchall()
+            order_cols = [row[1] for row in orders_res]
+            if "window_minutes" not in order_cols:
+                conn.execute(text("ALTER TABLE paper_orders ADD COLUMN window_minutes INTEGER DEFAULT 30"))
+
             conn.commit()
         except Exception as e:
             logger.warning("Could not verify/alter positions columns: %s", e)

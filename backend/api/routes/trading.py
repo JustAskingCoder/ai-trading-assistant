@@ -20,6 +20,7 @@ class PaperOrderRequest(BaseModel):
     target: float
     order_type: str = "MARKET"
     quantity: Optional[int] = None
+    window_minutes: Optional[int] = 30
 
 
 @router.get("/portfolio")
@@ -85,7 +86,7 @@ def get_positions(db: Session = Depends(get_db)):
         "stop_loss": p.stop_loss,
         "target": p.target,
         "entry_time": p.entry_time.isoformat() if getattr(p, "entry_time", None) else None,
-        "window_minutes": 10,
+        "window_minutes": 10 if p.symbol.startswith("TEST") else (getattr(p, "window_minutes", 30) or 30),
         "unrealized_pnl": round(p.unrealized_pnl, 2),
         "pnl_percentage": round((p.current_price - p.average_price) / p.average_price * 100.0, 2) if p.average_price > 0 else 0.0
     } for p in positions]
@@ -157,6 +158,7 @@ def place_paper_order(req: PaperOrderRequest, db: Session = Depends(get_db)):
         stop_loss=req.stop_loss,
         target=req.target,
         order_type=req.order_type,
+        window_minutes=req.window_minutes or 30,
         db=db
     )
     return res

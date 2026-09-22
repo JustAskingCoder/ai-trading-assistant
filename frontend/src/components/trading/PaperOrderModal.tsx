@@ -12,10 +12,18 @@ interface Props {
     price: number;
     stop_loss: number;
     target: number;
+    window_minutes?: number;
   }) => Promise<void>;
+  suggestedWindowMinutes?: number;
 }
 
-export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSubmit }) => {
+export const PaperOrderModal: React.FC<Props> = ({
+  isOpen,
+  signal,
+  onClose,
+  onSubmit,
+  suggestedWindowMinutes
+}) => {
   if (!isOpen || !signal) return null;
 
   const isForex = signal.symbol.includes('USD') || signal.symbol.includes('EUR') || signal.symbol.includes('GBP');
@@ -26,6 +34,9 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
   const [price, setPrice] = useState<number>(signal.entry_price);
   const [stopLoss, setStopLoss] = useState<number>(signal.stop_loss);
   const [target, setTarget] = useState<number>(signal.target);
+  const [windowMinutes, setWindowMinutes] = useState<number>(
+    signal.suggested_window || suggestedWindowMinutes || 30
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,9 +46,10 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
       setPrice(signal.entry_price);
       setStopLoss(signal.stop_loss);
       setTarget(signal.target);
+      setWindowMinutes(signal.suggested_window || suggestedWindowMinutes || 30);
       setError(null);
     }
-  }, [signal]);
+  }, [signal, suggestedWindowMinutes]);
 
   const applySlPercent = (pct: number) => {
     if (!price) return;
@@ -74,7 +86,8 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
         side,
         price: Number(price),
         stop_loss: Number(stopLoss),
-        target: Number(target)
+        target: Number(target),
+        window_minutes: Number(windowMinutes)
       });
       onClose();
     } catch (err: any) {
@@ -232,6 +245,43 @@ export const PaperOrderModal: React.FC<Props> = ({ isOpen, signal, onClose, onSu
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Trade Window Selector */}
+          <div>
+            <div className="flex items-center justify-between">
+              <label className="block text-xs font-semibold text-slate-400">
+                ⏱ Trade Window (Holding Duration / Auto-Exit)
+              </label>
+              <span className="text-[11px] text-sky-400 font-medium">
+                {windowMinutes}m Max Duration
+              </span>
+            </div>
+            <div className="mt-1.5 grid grid-cols-4 gap-2">
+              {[
+                { min: 15, label: '15m', desc: 'Scalp' },
+                { min: 30, label: '30m', desc: 'Swing (Rec.)' },
+                { min: 45, label: '45m', desc: 'Trend Ride' },
+                { min: 60, label: '60m', desc: 'Extended' }
+              ].map(opt => (
+                <button
+                  key={opt.min}
+                  type="button"
+                  onClick={() => setWindowMinutes(opt.min)}
+                  className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg border text-xs font-bold transition-all ${
+                    windowMinutes === opt.min
+                      ? 'bg-sky-500/20 text-sky-300 border-sky-500 shadow-md'
+                      : 'bg-dark-700 text-slate-400 border-dark-600 hover:text-white hover:bg-dark-600'
+                  }`}
+                >
+                  <span className="text-xs">{opt.label}</span>
+                  <span className="text-[10px] font-normal opacity-80">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Auto-exits with market order if target or stop-loss isn't reached within {windowMinutes} minutes.
+            </p>
           </div>
 
           <div className="rounded-lg bg-dark-900/60 p-3 text-xs text-slate-400 space-y-1.5">

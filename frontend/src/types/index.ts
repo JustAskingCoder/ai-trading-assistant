@@ -36,6 +36,7 @@ export interface Signal {
   reason: string;
   patterns?: Pattern[];
   indicators?: Record<string, any>;
+  suggested_window?: number;
 }
 
 export interface PortfolioData {
@@ -142,6 +143,37 @@ export interface WatchlistQuote {
   reason?: string;
   strategy?: string;
   confidence?: number;
+  suggested_window?: number;
+}
+
+export interface TrendAnalysis {
+  symbol: string;
+  name: string;
+  price: number;
+  trend: string;
+  trend_label: string;
+  regime: string;
+  indicators: {
+    adx?: number | null;
+    rsi?: number | null;
+    atr?: number | null;
+    atr_pct?: number | null;
+    ema20?: number | null;
+    ema50?: number | null;
+    vwap?: number | null;
+  };
+  day_range: {
+    high: number;
+    low: number;
+    open: number;
+  };
+  velocity: {
+    candles_for_1pct: number;
+    est_minutes_for_target: number;
+  };
+  suggested_window_minutes: number;
+  suggested_window_label: string;
+  rationale: string;
 }
 
 export interface ZerodhaStatus {

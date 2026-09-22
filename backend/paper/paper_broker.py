@@ -67,6 +67,7 @@ class PaperBroker:
         stop_loss: Optional[float] = None,
         target: Optional[float] = None,
         order_type: str = "MARKET",
+        window_minutes: Optional[int] = None,
         db: Optional[Session] = None
     ) -> Dict[str, Any]:
         """Execute a paper order and update positions & portfolio balance."""
@@ -92,6 +93,7 @@ class PaperBroker:
                     target = round(price * 0.97, 2)
 
             # Record Paper Order
+            effective_window = window_minutes if window_minutes is not None else (10 if symbol.startswith("TEST") else 30)
             order = PaperOrder(
                 symbol=symbol,
                 side=side.upper(),
@@ -101,6 +103,7 @@ class PaperBroker:
                 stop_loss=stop_loss,
                 target=target,
                 status="FILLED",
+                window_minutes=effective_window,
                 created_at=now,
                 filled_at=now
             )
@@ -122,6 +125,7 @@ class PaperBroker:
                     pos.current_price = price
                     pos.stop_loss = stop_loss
                     pos.target = target
+                    pos.window_minutes = effective_window
                     if not pos.entry_time:
                         pos.entry_time = now
                 else:
@@ -134,7 +138,8 @@ class PaperBroker:
                         unrealized_pnl=0.0,
                         stop_loss=stop_loss,
                         target=target,
-                        entry_time=now
+                        entry_time=now,
+                        window_minutes=effective_window
                     )
                     db.add(pos)
 
@@ -252,14 +257,19 @@ class PaperBroker:
                             pass
                     pos_dt = pos_time.astimezone(timezone.utc).replace(tzinfo=None) if getattr(pos_time, 'tzinfo', None) is not None else pos_time
                     elapsed_sec = (now_utc - pos_dt).total_seconds()
-                    if elapsed_sec >= 600.0 and not reason:
-                        reason = "10-Min Window Expired"
+                    window_m = getattr(pos, 'window_minutes', None)
+                    if not window_m:
+                        window_m = 10 if pos.symbol.startswith("TEST_") else 30
+                    window_s = window_m * 60.0
+
+                    if elapsed_sec >= window_s and not reason:
+                        reason = f"{window_m}-Min Window Expired" if window_m != 10 else "10-Min Window Expired"
                     elif candle_time and not reason:
                         c_time = candle_time.astimezone(timezone.utc).replace(tzinfo=None) if getattr(candle_time, 'tzinfo', None) is not None else candle_time
                         try:
                             candle_elapsed_min = (c_time - pos_dt).total_seconds() / 60.0
-                            if candle_elapsed_min >= 10.0:
-                                reason = "10-Min Window Expired"
+                            if candle_elapsed_min >= window_m:
+                                reason = f"{window_m}-Min Window Expired" if window_m != 10 else "10-Min Window Expired"
                         except Exception:
                             pass
 

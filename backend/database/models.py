@@ -117,6 +117,7 @@ class PaperOrder(Base):
     status = Column(String(20), default="FILLED")  # PENDING, FILLED, CANCELLED, REJECTED
     created_at = Column(DateTime, default=datetime.utcnow)
     filled_at = Column(DateTime, nullable=True)
+    window_minutes = Column(Integer, default=30)
 
 
 class Position(Base):
@@ -132,6 +133,7 @@ class Position(Base):
     stop_loss = Column(Float, nullable=True)
     target = Column(Float, nullable=True)
     entry_time = Column(DateTime, default=datetime.utcnow)
+    window_minutes = Column(Integer, default=30)
 
 
 class Trade(Base):

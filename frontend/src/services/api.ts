@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus } from '../types';
+import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis } from '../types';
 
 const client = axios.create({
   baseURL: '/api'
@@ -11,6 +11,8 @@ export const api = {
     client.get(`/market/${symbol}/candles`, { params: { interval, limit } }).then(r => r.data),
   getOverview: (symbol: string) =>
     client.get(`/market/${symbol}`).then(r => r.data),
+  getTrendAnalysis: (symbol: string): Promise<TrendAnalysis> =>
+    client.get(`/market/${symbol}/trend`).then(r => r.data),
   getWatchlist: (symbols?: string): Promise<WatchlistQuote[]> =>
     client.get('/market/watchlist', { params: { symbols } }).then(r => r.data),
   getMarketMode: () => client.get('/market/mode').then(r => r.data),
@@ -35,6 +37,7 @@ export const api = {
     target: number;
     order_type?: string;
     quantity?: number;
+    window_minutes?: number;
   }) => client.post('/paper/orders', order).then(r => r.data),
   analyzeWithAI: (data: any, provider?: string): Promise<AIAnalysis> =>
     client.post('/ai/analyze', data, { params: { provider } }).then(r => r.data),

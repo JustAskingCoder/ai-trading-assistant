@@ -123,6 +123,12 @@ def get_watchlist(symbols: str = Query("RELIANCE,TCS,INFY,HDFCBANK,USDINR,EURUSD
     return live_service.get_watchlist_quotes(symbol_list)
 
 
+@router.get("/market/{symbol}/trend")
+def get_market_trend(symbol: str):
+    """Return comprehensive multi-factor trend analysis and suggested trade holding window."""
+    return live_service.get_trend_analysis(symbol)
+
+
 @router.get("/market/{symbol}")
 def get_market_overview(symbol: str, db: Session = Depends(get_db)):
     if live_service.mode == "LIVE" or (live_service.data_source == "ZERODHA" and zerodha_client.is_connected):
