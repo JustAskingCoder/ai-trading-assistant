@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     MIN_RELEASE_CONFIDENCE: float = 0.80  # Only suggest or trigger release if >= 80% confident
     AUTO_EXTEND_WINNERS: bool = True       # Extend timer by +15m with breakeven locked if in profit
 
+    # Institutional Win-Rate Optimization Filters
+    ENABLE_MACRO_TREND_FILTER: bool = True     # 15m Higher-Timeframe trend alignment
+    ENABLE_MARKET_TIDE_FILTER: bool = True     # NIFTY benchmark direction alignment
+    ENABLE_TIME_OF_DAY_FILTER: bool = True     # Restrict entries during opening whipsaw & lunch chop
+    BREAKOUT_VOLUME_MULTIPLIER: float = 1.4    # Minimum volume expansion for breakouts
+
     # AI Provider Settings
     DEFAULT_AI_PROVIDER: str = "openai"
     DEFAULT_AI_MODEL: str = "gpt-4o-mini"

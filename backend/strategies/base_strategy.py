@@ -106,11 +106,17 @@ class BreakoutStrategy(BaseStrategy):
             abs(close - ema20) / ema20 <= 0.012
         )
 
+        c_open, c_high, c_low = curr["open"], curr["high"], curr["low"]
+        c_range = c_high - c_low
+        c_body = abs(close - c_open)
+        solid_body = (c_body / c_range >= 0.35) if c_range > 0 else True
+
         # Bullish Breakout BUY
         if (
             close > resistance and
             prev_close <= resistance and
             vol > 1.2 * vol_sma and
+            solid_body and
             ema20 is not None and ema50 is not None and pd.notnull(ema20) and pd.notnull(ema50) and ema20 > ema50 and
             rsi is not None and pd.notnull(rsi) and 48.0 <= rsi <= 68.0 and
             near_ema20
@@ -161,6 +167,7 @@ class BreakoutStrategy(BaseStrategy):
             close < support and
             prev_close >= support and
             vol > 1.2 * vol_sma and
+            solid_body and
             ema20 is not None and ema50 is not None and pd.notnull(ema20) and pd.notnull(ema50) and ema20 < ema50 and
             rsi is not None and pd.notnull(rsi) and 32.0 <= rsi <= 52.0 and
             near_ema20

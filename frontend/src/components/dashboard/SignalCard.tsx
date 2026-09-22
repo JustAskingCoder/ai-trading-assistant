@@ -170,6 +170,20 @@ export const SignalCard: React.FC<Props> = ({
               <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-300 border border-indigo-500/20">
                 🛡 Structural SL
               </span>
+              {signal.market_tide && signal.market_tide !== 'NEUTRAL' && (
+                <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-bold border ${
+                  signal.market_tide === 'BULLISH'
+                    ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30'
+                    : 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                }`}>
+                  🌊 Tide: {signal.market_tide}
+                </span>
+              )}
+              {signal.macro_trend && signal.macro_trend !== 'NEUTRAL' && (
+                <span className="rounded bg-purple-500/10 px-2 py-0.5 text-[11px] font-bold text-purple-300 border border-purple-500/30">
+                  🧭 15m: {signal.macro_trend}
+                </span>
+              )}
               {isOutOfRange && (
                 <span className="flex items-center gap-1 rounded bg-rose-500/20 px-2 py-0.5 text-[11px] font-bold text-rose-300 border border-rose-500/30 animate-pulse">
                   ⚠️ Signal Out of Range

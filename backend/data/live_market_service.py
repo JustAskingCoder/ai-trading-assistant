@@ -16,6 +16,7 @@ from backend.database.models import Position
 from backend.data.market_simulator import simulator
 from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.core.logging import logger
+from backend.core.config import settings
 
 SYMBOL_MAP = {
     # Indian Equities & Indices
@@ -320,6 +321,88 @@ class LiveMarketService:
             "timestamp": zq.get("timestamp", datetime.now().isoformat())
         }
 
+    def get_market_tide(self) -> Dict[str, Any]:
+        """
+        Evaluates benchmark index (NIFTY 50) intraday direction and regime.
+        Returns tide ('BULLISH', 'BEARISH', 'NEUTRAL'), change_pct, and rationale.
+        """
+        try:
+            records, ind_df = self._fetch_and_prepare("NIFTY", interval="5m", limit=30)
+            if ind_df is None or len(ind_df) < 5:
+                return {"tide": "NEUTRAL", "change_pct": 0.0, "reason": "Index data unavailable"}
+
+            last = ind_df.iloc[-1]
+            close_p = float(last["close"])
+            vwap = float(last["vwap"]) if pd.notnull(last.get("vwap")) else close_p
+            ema20 = float(last["ema20"]) if pd.notnull(last.get("ema20")) else close_p
+            ema50 = float(last["ema50"]) if pd.notnull(last.get("ema50")) else close_p
+            first_open = float(ind_df.iloc[0]["open"]) if float(ind_df.iloc[0]["open"]) > 0 else close_p
+            change_pct = ((close_p - first_open) / first_open * 100.0)
+
+            if close_p > vwap and ema20 >= ema50 and change_pct > 0.05:
+                return {"tide": "BULLISH", "change_pct": round(change_pct, 2), "reason": f"NIFTY Bullish above VWAP ({change_pct:+.2f}%)"}
+            elif close_p < vwap and ema20 <= ema50 and change_pct < -0.05:
+                return {"tide": "BEARISH", "change_pct": round(change_pct, 2), "reason": f"NIFTY Bearish below VWAP ({change_pct:+.2f}%)"}
+            else:
+                return {"tide": "NEUTRAL", "change_pct": round(change_pct, 2), "reason": f"NIFTY Range-Bound / Consolidation ({change_pct:+.2f}%)"}
+        except Exception as e:
+            logger.debug("Error computing market tide: %s", e)
+            return {"tide": "NEUTRAL", "change_pct": 0.0, "reason": "Index feed error"}
+
+    def check_time_of_day_filter(self) -> Tuple[bool, str]:
+        """
+        Checks if current Indian market time (IST) falls in the Golden Trading Hours
+        or high-risk trap zones (opening whipsaw / lunch chop).
+        Returns (is_optimal, reason).
+        """
+        try:
+            from datetime import timezone, timedelta
+            import datetime as dt_module
+            ist_now = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+            t = ist_now.time()
+
+            # 09:15 - 09:30: Opening whipsaw / institutional stop-hunt
+            if dt_module.time(9, 15) <= t < dt_module.time(9, 30):
+                return False, "Opening Whipsaw Trap (09:15-09:30 IST) — High false breakout risk"
+            # 12:00 - 13:15: European open / lunch low-liquidity consolidation
+            if dt_module.time(12, 0) <= t < dt_module.time(13, 15):
+                return False, "Lunch Consolidation Doldrums (12:00-13:15 IST) — Low volume chop"
+            # 15:15 - 15:30: MIS square-off erratic volatility
+            if dt_module.time(15, 15) <= t <= dt_module.time(15, 30):
+                return False, "Market Close Square-Off (15:15-15:30 IST) — End-of-day rush"
+
+            return True, "Golden Momentum Window (High-Conviction Trading Hours)"
+        except Exception:
+            return True, "Market Hours"
+
+    def get_macro_trend(self, symbol: str) -> Dict[str, Any]:
+        """
+        Evaluates 15-minute higher timeframe trend for directional macro concurrence.
+        """
+        clean_sym = symbol.strip().upper().replace("/", "").replace(" ", "").replace("_", "")
+        if clean_sym.startswith("TEST"):
+            return {"macro_trend": "NEUTRAL", "ema50": None, "aligned": True}
+
+        try:
+            records_15m, ind_15m = self._fetch_and_prepare(clean_sym, interval="15m", limit=30)
+            if ind_15m is None or len(ind_15m) < 10:
+                return {"macro_trend": "NEUTRAL", "ema50": None, "aligned": True}
+
+            last_15m = ind_15m.iloc[-1]
+            c15 = float(last_15m["close"])
+            ema20_15 = float(last_15m["ema20"]) if pd.notnull(last_15m.get("ema20")) else c15
+            ema50_15 = float(last_15m["ema50"]) if pd.notnull(last_15m.get("ema50")) else c15
+
+            if c15 > ema50_15 and ema20_15 >= ema50_15:
+                return {"macro_trend": "BULLISH", "ema50": round(ema50_15, 2), "aligned": True}
+            elif c15 < ema50_15 and ema20_15 <= ema50_15:
+                return {"macro_trend": "BEARISH", "ema50": round(ema50_15, 2), "aligned": True}
+            else:
+                return {"macro_trend": "CONSOLIDATION", "ema50": round(ema50_15, 2), "aligned": True}
+        except Exception as e:
+            logger.debug("Error computing macro trend for %s: %s", symbol, e)
+            return {"macro_trend": "NEUTRAL", "ema50": None, "aligned": True}
+
     def _fetch_single_quote(self, symbol: str, use_cache: bool = True) -> Dict[str, Any]:
         """Fetch quote, calculate metrics, and evaluate signal for a single symbol."""
         raw_sym = symbol.strip()
@@ -495,6 +578,47 @@ class LiveMarketService:
                 reason = f"Trade invalid: Risk/Reward ratio {risk_reward} below minimum 0.8"
                 confidence = 0.40
 
+            # Institutional Pre-Flight Quality Gates to maximize Win Rate
+            market_tide = "NEUTRAL"
+            macro_trend = "NEUTRAL"
+            if action in ("BUY", "SELL"):
+                # 1. Market Tide Filter (for NSE Equities)
+                if getattr(settings, "ENABLE_MARKET_TIDE_FILTER", True) and market == "NSE" and not clean_sym.startswith("TEST") and clean_sym != "NIFTY":
+                    tide_info = self.get_market_tide()
+                    market_tide = tide_info.get("tide", "NEUTRAL")
+                    if action == "BUY" and market_tide == "BEARISH":
+                        action = "WAIT"
+                        confidence = 0.50
+                        reason = f"Filtered by Market Tide: NIFTY Bearish ({tide_info.get('change_pct', 0.0):+.2f}%); avoiding Long bull trap"
+                    elif action == "SELL" and market_tide == "BULLISH":
+                        action = "WAIT"
+                        confidence = 0.50
+                        reason = f"Filtered by Market Tide: NIFTY Bullish ({tide_info.get('change_pct', 0.0):+.2f}%); avoiding Short squeeze trap"
+
+                # 2. Time-of-Day Filter (Avoiding opening whipsaw and lunch chop)
+                if action in ("BUY", "SELL") and getattr(settings, "ENABLE_TIME_OF_DAY_FILTER", True) and market == "NSE" and not clean_sym.startswith("TEST"):
+                    is_optimal, time_reason = self.check_time_of_day_filter()
+                    if not is_optimal:
+                        action = "WAIT"
+                        confidence = 0.52
+                        reason = f"Filtered by Time Window: {time_reason}"
+
+                # 3. Macro 15m Trend Alignment Filter
+                if action in ("BUY", "SELL") and getattr(settings, "ENABLE_MACRO_TREND_FILTER", True) and not clean_sym.startswith("TEST"):
+                    macro_info = self.get_macro_trend(clean_sym)
+                    macro_trend = macro_info.get("macro_trend", "NEUTRAL")
+                    if action == "BUY" and macro_trend == "BEARISH":
+                        action = "WAIT"
+                        confidence = 0.48
+                        reason = f"Filtered by 15m Macro Trend: Higher timeframe (15m) is Bearish below EMA50"
+                    elif action == "SELL" and macro_trend == "BULLISH":
+                        action = "WAIT"
+                        confidence = 0.48
+                        reason = f"Filtered by 15m Macro Trend: Higher timeframe (15m) is Bullish above EMA50"
+                    elif (action == "BUY" and macro_trend == "BULLISH") or (action == "SELL" and macro_trend == "BEARISH"):
+                        confidence = min(0.95, round(confidence + 0.05, 2))
+                        reason += " | Confirmed by 15m Macro Alignment"
+
             target_profit = round(target_dist * quantity, dec)
             max_risk = round(risk_dist * quantity, dec)
 
@@ -521,6 +645,8 @@ class LiveMarketService:
                 "strategy": strategy_name,
                 "confidence": confidence,
                 "market": market,
+                "market_tide": market_tide,
+                "macro_trend": macro_trend,
                 "patterns": strat_sig.get("patterns", []) if strat_sig else (detect_all_patterns(ind_df, -1) if len(ind_df) >= 20 else []),
                 "indicators": {
                     "rsi": round(float(last_candle["rsi"]), 2) if pd.notnull(last_candle.get("rsi")) else None,

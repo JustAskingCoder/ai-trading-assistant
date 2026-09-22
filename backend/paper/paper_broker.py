@@ -354,12 +354,24 @@ class PaperBroker:
                     if current_price >= pos.average_price * 1.008:  # +0.8% profit
                         locked_sl = round(pos.average_price * 1.004, 2)
                         pos.stop_loss = locked_sl
-                        triggers.append({'type': 'PROFIT_LOCKED', 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': locked_sl, 'current_price': current_price})
+                        triggers.append({'type': 'PROFIT_LOCKED', 'tier': 2, 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': locked_sl, 'current_price': current_price})
                 elif pos.side == 'SELL' and pos.stop_loss and pos.stop_loss >= pos.average_price:
                     if current_price <= pos.average_price * 0.992:  # +0.8% profit
                         locked_sl = round(pos.average_price * 0.996, 2)
                         pos.stop_loss = locked_sl
-                        triggers.append({'type': 'PROFIT_LOCKED', 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': locked_sl, 'current_price': current_price})
+                        triggers.append({'type': 'PROFIT_LOCKED', 'tier': 2, 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': locked_sl, 'current_price': current_price})
+
+                # Trailing Profit Runner Lock (Stage 3: Lock in +0.8% profit at +1.2% expansion)
+                if pos.side == 'BUY' and pos.stop_loss and pos.stop_loss < round(pos.average_price * 1.008, 2):
+                    if current_price >= pos.average_price * 1.012:  # +1.2% expansion
+                        runner_sl = round(pos.average_price * 1.008, 2)
+                        pos.stop_loss = runner_sl
+                        triggers.append({'type': 'PROFIT_LOCKED', 'tier': 3, 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': runner_sl, 'current_price': current_price})
+                elif pos.side == 'SELL' and pos.stop_loss and pos.stop_loss > round(pos.average_price * 0.992, 2):
+                    if current_price <= pos.average_price * 0.988:  # +1.2% expansion
+                        runner_sl = round(pos.average_price * 0.992, 2)
+                        pos.stop_loss = runner_sl
+                        triggers.append({'type': 'PROFIT_LOCKED', 'tier': 3, 'symbol': pos.symbol, 'side': pos.side, 'locked_sl': runner_sl, 'current_price': current_price})
 
                 reason = None
                 if pos.side == 'BUY':

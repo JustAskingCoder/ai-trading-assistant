@@ -115,13 +115,19 @@ export const PositionTable: React.FC<Props> = ({ positions, trades, onClosePosit
                       <td className="py-2.5 text-white font-medium">{prefix}{(p.current_price ?? p.average_price ?? 0).toFixed(dec)}</td>
                       <td className="py-2.5">
                         {p.stop_loss !== null && p.stop_loss !== undefined && (
+                          p.side === 'BUY' ? p.stop_loss >= p.average_price * 1.007 : p.stop_loss <= p.average_price * 0.993
+                        ) ? (
+                          <span className="rounded bg-teal-500/20 px-1.5 py-0.5 text-[10px] font-bold text-teal-300 border border-teal-500/30" title="Tier 3 Trailing: +0.8% Runner Profit Locked!">
+                            🚀 Lock +0.8% ({prefix}{p.stop_loss.toFixed(dec)})
+                          </span>
+                        ) : p.stop_loss !== null && p.stop_loss !== undefined && (
                           p.side === 'BUY' ? p.stop_loss > p.average_price + (isForex ? 0.0005 : 0.05) : p.stop_loss < p.average_price - (isForex ? 0.0005 : 0.05)
                         ) ? (
-                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30" title="Stage 2 Trailing: +0.4% Profit Locked In!">
-                            🔒 Lock ({prefix}{p.stop_loss.toFixed(dec)})
+                          <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold text-emerald-300 border border-emerald-500/30" title="Tier 2 Trailing: +0.4% Profit Locked In!">
+                            🔒 Lock +0.4% ({prefix}{p.stop_loss.toFixed(dec)})
                           </span>
                         ) : p.stop_loss !== null && p.stop_loss !== undefined && Math.abs(p.stop_loss - p.average_price) <= (isForex ? 0.0005 : 0.05) ? (
-                          <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold text-sky-300 border border-sky-500/30" title="Stage 1: Risk-Free (Stop-Loss at Breakeven)">
+                          <span className="rounded bg-sky-500/20 px-1.5 py-0.5 text-[10px] font-bold text-sky-300 border border-sky-500/30" title="Tier 1 Trailing: Risk-Free (Stop-Loss at Breakeven)">
                             🛡 Breakeven ({prefix}{p.stop_loss.toFixed(dec)})
                           </span>
                         ) : (

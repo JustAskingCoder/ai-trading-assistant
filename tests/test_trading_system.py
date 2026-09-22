@@ -1984,3 +1984,162 @@ def test_stage_2_trailing_profit_lock():
         db.close()
 
 
+def test_stage_3_trailing_profit_lock():
+    """Verify Stage 3 Trailing Stop locks in +0.8% profit when price reaches +1.2% expansion."""
+    from backend.paper.paper_broker import paper_broker
+    from backend.database.session import SessionLocal
+    from backend.database.models import Position, Trade
+
+    sym = "TEST_PROFIT_LOCK_3"
+    db = SessionLocal()
+    try:
+        paper_broker.reset_portfolio(db)
+        # 1. Test BUY side
+        paper_broker.place_order(sym, "BUY", 10, 1000.0, stop_loss=985.0, target=1030.0, db=db)
+
+        # Price advances +1.25% (1012.5) -> Hits Tier 3 Runner Lock
+        trigs = paper_broker.update_market_price(sym, 1012.5, db=db)
+        t3_events = [t for t in trigs if t.get("type") == "PROFIT_LOCKED" and t.get("tier") == 3]
+        assert len(t3_events) == 1
+        assert t3_events[0]["locked_sl"] == 1008.0
+
+        pos = db.query(Position).filter(Position.symbol == sym).first()
+        assert pos.stop_loss == 1008.0  # +0.8% locked profit!
+
+        # 2. Test SELL side
+        sym_sell = "TEST_PROFIT_LOCK_3_S"
+        paper_broker.place_order(sym_sell, "SELL", 10, 1000.0, stop_loss=1015.0, target=970.0, db=db)
+
+        # Price drops +1.25% in profit for short (987.5) -> Hits Tier 3 Runner Lock
+        trigs_s = paper_broker.update_market_price(sym_sell, 987.5, db=db)
+        t3_s_events = [t for t in trigs_s if t.get("type") == "PROFIT_LOCKED" and t.get("tier") == 3]
+        assert len(t3_s_events) == 1
+        assert t3_s_events[0]["locked_sl"] == 992.0
+
+        pos_s = db.query(Position).filter(Position.symbol == sym_sell).first()
+        assert pos_s.stop_loss == 992.0  # +0.8% locked profit!
+    finally:
+        paper_broker.reset_portfolio(db)
+        db.close()
+
+
+def test_time_of_day_filter():
+    """Verify check_time_of_day_filter identifies opening whipsaws, lunch lull, and golden hours."""
+    from backend.data.live_market_service import live_service
+    from datetime import datetime, timezone, timedelta
+    from unittest.mock import patch
+
+    ist = timezone(timedelta(hours=5, minutes=30))
+
+    # Test opening whipsaw (09:20 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 9, 20, 0, tzinfo=ist)
+        is_opt, reason = live_service.check_time_of_day_filter()
+        assert is_opt is False
+        assert "Opening Whipsaw Trap" in reason
+
+    # Test golden morning window (10:15 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 10, 15, 0, tzinfo=ist)
+        is_opt, reason = live_service.check_time_of_day_filter()
+        assert is_opt is True
+        assert "Golden Momentum Window" in reason
+
+    # Test lunch doldrums (12:30 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 12, 30, 0, tzinfo=ist)
+        is_opt, reason = live_service.check_time_of_day_filter()
+        assert is_opt is False
+        assert "Lunch Consolidation Doldrums" in reason
+
+    # Test golden afternoon window (14:00 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 14, 0, 0, tzinfo=ist)
+        is_opt, reason = live_service.check_time_of_day_filter()
+        assert is_opt is True
+        assert "Golden Momentum Window" in reason
+
+    # Test closing square-off (15:20 IST)
+    with patch("backend.data.live_market_service.datetime") as mock_dt:
+        mock_dt.now.return_value = datetime(2026, 3, 23, 15, 20, 0, tzinfo=ist)
+        is_opt, reason = live_service.check_time_of_day_filter()
+        assert is_opt is False
+        assert "Market Close Square-Off" in reason
+
+
+def test_market_tide_and_macro_trend():
+    """Verify market tide evaluation and macro trend isolation for tests."""
+    from backend.data.live_market_service import live_service
+
+    # Macro trend for TEST symbols must safely return neutral and aligned
+    macro = live_service.get_macro_trend("TEST_SYMBOL")
+    assert macro["aligned"] is True
+    assert macro["macro_trend"] == "NEUTRAL"
+
+    # Market tide structure check
+    tide = live_service.get_market_tide()
+    assert "tide" in tide
+    assert "change_pct" in tide
+    assert "reason" in tide
+    assert tide["tide"] in ["BULLISH", "BEARISH", "NEUTRAL"]
+
+
+def test_breakout_solid_candle_body_filter():
+    """Verify BreakoutStrategy rejects long-wick fakeout/doji candles and only accepts solid breakout bodies."""
+    from backend.strategies.base_strategy import BreakoutStrategy
+
+    strat = BreakoutStrategy()
+    rows = []
+    for i in range(30):
+        rows.append({
+            "symbol": "BRK_BODY_TEST",
+            "timestamp": f"2026-01-01 10:{i:02d}:00",
+            "open": 1000.0,
+            "high": 1005.0,
+            "low": 995.0,
+            "close": 1000.0,
+            "volume": 1000,
+            "volume_sma": 1000,
+            "ema20": 1000.0,
+            "ema50": 995.0,
+            "rsi": 55.0,
+            "adx": 20.0,
+            "atr": 5.0
+        })
+
+    # Case 1: Rejection Wick / Doji candle breakout (high wick fakeout, body < 35% range)
+    # Range is 1012 - 998 = 14.0. Open = 1006.0, Close = 1007.0 -> Body = 1.0. Body ratio = 1/14 = 7% (< 35%)
+    df_fakeout = pd.DataFrame(rows)
+    df_fakeout.loc[28, "close"] = 1002.0
+    df_fakeout.loc[29, "open"] = 1006.0
+    df_fakeout.loc[29, "high"] = 1012.0
+    df_fakeout.loc[29, "low"] = 998.0
+    df_fakeout.loc[29, "close"] = 1007.0  # breaks 1005.0 resistance, but long wick rejection
+    df_fakeout.loc[29, "volume"] = 2000
+    df_fakeout.loc[29, "ema20"] = 1002.0
+    df_fakeout.loc[29, "ema50"] = 995.0
+    df_fakeout.loc[29, "rsi"] = 58.0
+
+    sig_fakeout = strat.evaluate(df_fakeout, -1)
+    assert sig_fakeout is None  # Vetoed due to lack of solid body!
+
+    # Case 2: Solid Institutional Candle (Body >= 35% range)
+    # Range is 1010 - 1001 = 9.0. Open = 1002.0, Close = 1009.0 -> Body = 7.0. Body ratio = 7/9 = 77% (>= 35%)
+    df_solid = pd.DataFrame(rows)
+    df_solid.loc[28, "close"] = 1002.0
+    df_solid.loc[29, "open"] = 1002.0
+    df_solid.loc[29, "high"] = 1010.0
+    df_solid.loc[29, "low"] = 1001.0
+    df_solid.loc[29, "close"] = 1009.0
+    df_solid.loc[29, "volume"] = 2000
+    df_solid.loc[29, "ema20"] = 1002.0
+    df_solid.loc[29, "ema50"] = 995.0
+    df_solid.loc[29, "rsi"] = 58.0
+
+    sig_solid = strat.evaluate(df_solid, -1)
+    assert sig_solid is not None
+    assert sig_solid["signal"] == "BUY"
+    assert sig_solid["entry_price"] == 1009.0
+
+
+

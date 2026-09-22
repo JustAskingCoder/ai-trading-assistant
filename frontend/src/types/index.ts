@@ -37,6 +37,8 @@ export interface Signal {
   patterns?: Pattern[];
   indicators?: Record<string, any>;
   suggested_window?: number;
+  market_tide?: string;
+  macro_trend?: string;
 }
 
 export interface PortfolioData {
