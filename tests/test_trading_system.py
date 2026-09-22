@@ -16,7 +16,23 @@ from backend.ai.schemas import AIAnalysisResponse, EntryZone
 from backend.database.session import SessionLocal, Base, engine
 from backend.database.models import Portfolio, Position, Trade, PaperOrder
 from backend.main import app
+from backend.core.config import settings
 from fastapi.testclient import TestClient
+
+
+@pytest.fixture(autouse=True, scope="module")
+def cleanup_test_data():
+    yield
+    db = SessionLocal()
+    try:
+        db.query(Trade).filter(Trade.symbol.like("TEST%")).delete()
+        db.query(Position).filter(Position.symbol.like("TEST%")).delete()
+        db.query(PaperOrder).filter(PaperOrder.symbol.like("TEST%")).delete()
+        db.commit()
+    except Exception:
+        pass
+    finally:
+        db.close()
 
 
 @pytest.fixture(scope="module")
@@ -135,7 +151,7 @@ def test_risk_manager_rules():
         stop_loss=980.0,
         target=1040.0,
         portfolio=dummy_portfolio,
-        open_positions_count=3  # Max is 3
+        open_positions_count=settings.MAX_OPEN_POSITIONS  # Max open positions limit
     )
     assert app_pos is False
 

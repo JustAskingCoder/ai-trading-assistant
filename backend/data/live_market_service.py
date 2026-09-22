@@ -527,7 +527,7 @@ class LiveMarketService:
                     "ema50": round(float(last_candle["ema50"]), dec) if pd.notnull(last_candle.get("ema50")) else None,
                     "vwap": round(float(last_candle["vwap"]), dec) if pd.notnull(last_candle.get("vwap")) else None,
                 },
-                "suggested_window": 45 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 35.0) else (30 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 22.0) else 15),
+                "suggested_window": 60 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 35.0) else (45 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 22.0) else 30),
                 "timestamp": str(last_candle.get("timestamp", datetime.now().isoformat()))
             }
             self._quote_cache[cache_key] = (now_ts, quote_payload)
@@ -851,25 +851,25 @@ class LiveMarketService:
 
         # Suggested Trade Holding Window
         if adx >= 35.0 and trend in ["BULLISH_EXPANSION", "BEARISH_EXPANSION"]:
-            suggested_window = 45
-            window_label = "45 Minutes (Trend Ride)"
+            suggested_window = 60
+            window_label = "60 Minutes (Trend Ride)"
             rationale = (
                 f"Strong directional trend (ADX {adx:.1f}) in {trend_label}. "
-                f"45 minutes (9 candles) allows the directional wave to expand toward targets without premature exit."
+                f"60 minutes (12 candles) allows the directional momentum to fully expand toward targets without premature exit."
             )
         elif adx >= 22.0 or trend in ["PULLBACK_TEST", "COUNTER_BOUNCE"]:
-            suggested_window = 30
-            window_label = "30 Minutes (Pullback Swing)"
+            suggested_window = 45
+            window_label = "45 Minutes (Pullback Swing)"
             rationale = (
                 f"Moderate momentum (ADX {adx:.1f}) in {trend_label} with ATR ₹{atr:.2f} ({atr_pct:.2f}%/candle). "
-                f"Requires ~{candles_for_1pct} candles (~{est_minutes} mins) for structural completion."
+                f"45 minutes (9 candles) provides ample duration for structural swing completion."
             )
         else:
-            suggested_window = 15
-            window_label = "15 Minutes (Scalp Window)"
+            suggested_window = 30
+            window_label = "30 Minutes (Intraday Base Window)"
             rationale = (
                 f"Range-bound consolidation (ADX {adx:.1f}). "
-                f"15-minute quick scalp window prevents holding during prolonged flat consolidation."
+                f"30 minutes (6 candles) gives sufficient breathing room to break consolidation while maintaining risk discipline."
             )
 
         is_forex = get_market_category(symbol) == "FOREX"

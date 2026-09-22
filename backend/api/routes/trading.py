@@ -26,10 +26,11 @@ class PaperOrderRequest(BaseModel):
 @router.get("/portfolio")
 def get_portfolio(db: Session = Depends(get_db)):
     portfolio = paper_broker.get_portfolio(db)
-    positions_count = db.query(Position).count()
-    trades_count = db.query(Trade).count()
-    winning_trades = db.query(Trade).filter(Trade.pnl > 0).count()
-    losing_trades = db.query(Trade).filter(Trade.pnl <= 0).count()
+    positions_count = db.query(Position).filter(~Position.symbol.like("TEST%")).count()
+    real_trades = db.query(Trade).filter(~Trade.symbol.like("TEST%"))
+    trades_count = real_trades.count()
+    winning_trades = real_trades.filter(Trade.pnl > 0).count()
+    losing_trades = real_trades.filter(Trade.pnl <= 0).count()
     win_rate = round(winning_trades / trades_count * 100.0, 2) if trades_count > 0 else 0.0
 
     return {
@@ -213,7 +214,7 @@ def place_paper_order(req: PaperOrderRequest, db: Session = Depends(get_db)):
 
 @router.get("/trades")
 def get_trades(limit: int = 100, db: Session = Depends(get_db)):
-    trades = db.query(Trade).order_by(Trade.exit_time.desc()).limit(limit).all()
+    trades = db.query(Trade).filter(~Trade.symbol.like("TEST%")).order_by(Trade.exit_time.desc()).limit(limit).all()
     return [{
         "id": t.id,
         "symbol": t.symbol,

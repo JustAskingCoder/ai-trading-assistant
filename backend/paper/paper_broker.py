@@ -375,16 +375,42 @@ class PaperBroker:
                         window_m = 10 if pos.symbol.startswith("TEST_") else 30
                     window_s = window_m * 60.0
 
-                    if elapsed_sec >= window_s and not reason:
-                        reason = f"{window_m}-Min Window Expired" if window_m != 10 else "10-Min Window Expired"
-                    elif candle_time and not reason:
+                    window_expired = False
+                    if elapsed_sec >= window_s:
+                        window_expired = True
+                    elif candle_time:
                         c_time = candle_time.astimezone(timezone.utc).replace(tzinfo=None) if getattr(candle_time, 'tzinfo', None) is not None else candle_time
                         try:
                             candle_elapsed_min = (c_time - pos_dt).total_seconds() / 60.0
                             if candle_elapsed_min >= window_m:
-                                reason = f"{window_m}-Min Window Expired" if window_m != 10 else "10-Min Window Expired"
+                                window_expired = True
                         except Exception:
                             pass
+
+                    if window_expired and not reason:
+                        if pos.symbol.startswith("TEST_"):
+                            reason = f"{window_m}-Min Window Expired" if window_m != 10 else "10-Min Window Expired"
+                        elif pos.unrealized_pnl > 0 and window_m < 90:
+                            # Position is in profit! Lock breakeven stop loss and extend window by 15 mins to let winner run
+                            if pos.side == 'BUY' and (pos.stop_loss is None or pos.stop_loss < pos.average_price):
+                                pos.stop_loss = pos.average_price
+                            elif pos.side == 'SELL' and (pos.stop_loss is None or pos.stop_loss > pos.average_price):
+                                pos.stop_loss = pos.average_price
+                            pos.window_minutes = window_m + 15
+                            triggers.append({
+                                'type': 'WINDOW_EXTENDED_IN_PROFIT',
+                                'symbol': pos.symbol,
+                                'side': pos.side,
+                                'breakeven_locked': pos.stop_loss,
+                                'new_window_minutes': pos.window_minutes,
+                                'unrealized_pnl': pos.unrealized_pnl
+                            })
+                            logger.info(
+                                "Position %s (%s) profitable (+₹%.2f) at %dm expiry; extended to %dm with breakeven SL @ ₹%.2f",
+                                pos.symbol, pos.side, pos.unrealized_pnl, window_m, pos.window_minutes, pos.stop_loss
+                            )
+                        else:
+                            reason = f"{window_m}-Min Window Expired"
 
                 if reason is not None:
                     exit_record = {

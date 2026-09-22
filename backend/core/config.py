@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     MAX_INVESTMENT_PER_TRADE: float = 5000.0
     RISK_PER_TRADE: float = 0.015  # 1.5% max risk per trade
     MAX_DAILY_LOSS: float = 0.03   # 3% max daily loss
-    MAX_OPEN_POSITIONS: int = 3
+    MAX_OPEN_POSITIONS: int = 6
     MIN_RISK_REWARD: float = 0.8
     MIN_AI_CONFIDENCE: float = 0.75
     DEFAULT_TIMEFRAME: str = "5m"
