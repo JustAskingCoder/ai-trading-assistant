@@ -72,15 +72,19 @@ class BreakoutStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 48.0 <= rsi <= 68.0 and
             near_ema20
         ):
-            target = round(close + min(1.2 * atr, close * 0.005), 2)
+            # Calibrated structural brackets: minimum 1.0% stop-loss buffer (or 2.0 * ATR)
+            # and minimum 1.5% target buffer (or 3.0 * ATR) to provide healthy breathing room
+            risk_buffer = max(2.0 * atr, close * 0.010)
+            reward_buffer = max(3.0 * atr, close * 0.015)
+            target = round(close + reward_buffer, 2)
             sl_candidate = round(support - 0.5 * atr, 2) if (support is not None and pd.notnull(support)) else None
-            if sl_candidate is not None and sl_candidate < close and (target - close) / (close - sl_candidate + 1e-10) >= 0.8:
+            if sl_candidate is not None and sl_candidate < close and (close - sl_candidate) >= (close * 0.008):
                 stop_loss = sl_candidate
             else:
-                stop_loss = round(close - 1.2 * atr, 2)
+                stop_loss = round(close - risk_buffer, 2)
 
             risk = close - stop_loss
-            risk_reward = round((target - close) / risk, 2) if risk > 0 else 0.8
+            risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
             patterns = detect_all_patterns(df, idx)
 
             return {
@@ -112,15 +116,17 @@ class BreakoutStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 32.0 <= rsi <= 52.0 and
             near_ema20
         ):
-            target = round(close - min(1.2 * atr, close * 0.005), 2)
+            risk_buffer = max(2.0 * atr, close * 0.010)
+            reward_buffer = max(3.0 * atr, close * 0.015)
+            target = round(close - reward_buffer, 2)
             sl_candidate = round(resistance + 0.5 * atr, 2) if (resistance is not None and pd.notnull(resistance)) else None
-            if sl_candidate is not None and sl_candidate > close and (close - target) / (sl_candidate - close + 1e-10) >= 0.8:
+            if sl_candidate is not None and sl_candidate > close and (sl_candidate - close) >= (close * 0.008):
                 stop_loss = sl_candidate
             else:
-                stop_loss = round(close + 1.2 * atr, 2)
+                stop_loss = round(close + risk_buffer, 2)
 
             risk = stop_loss - close
-            risk_reward = round((close - target) / risk, 2) if risk > 0 else 0.8
+            risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
             patterns = detect_all_patterns(df, idx)
 
             return {
@@ -201,10 +207,12 @@ class MomentumStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 50.0 <= rsi <= 66.0 and
             near_ema20
         ):
-            stop_loss = round(close - (1.2 * atr), 2)
-            target = round(close + min(1.2 * atr, close * 0.005), 2)
+            risk_buffer = max(2.0 * atr, close * 0.010)
+            reward_buffer = max(3.0 * atr, close * 0.015)
+            stop_loss = round(close - risk_buffer, 2)
+            target = round(close + reward_buffer, 2)
             risk = close - stop_loss
-            risk_reward = round((target - close) / risk, 2) if risk > 0 else 0.8
+            risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
@@ -239,10 +247,12 @@ class MomentumStrategy(BaseStrategy):
             rsi is not None and pd.notnull(rsi) and 34.0 <= rsi <= 50.0 and
             near_ema20
         ):
-            stop_loss = round(close + (1.2 * atr), 2)
-            target = round(close - min(1.2 * atr, close * 0.005), 2)
+            risk_buffer = max(2.0 * atr, close * 0.010)
+            reward_buffer = max(3.0 * atr, close * 0.015)
+            stop_loss = round(close + risk_buffer, 2)
+            target = round(close - reward_buffer, 2)
             risk = stop_loss - close
-            risk_reward = round((close - target) / risk, 2) if risk > 0 else 0.8
+            risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
@@ -308,13 +318,15 @@ class TrendFollowingStrategy(BaseStrategy):
             curr["close"] > curr["open"] and
             close <= vwap * 1.008
         ):
-            target = round(close + min(1.2 * atr, close * 0.006), 2)
+            risk_buffer = max(2.0 * atr, close * 0.010)
+            reward_buffer = max(3.0 * atr, close * 0.015)
+            target = round(close + reward_buffer, 2)
             stop_loss = round(vwap - 0.5 * atr, 2)
-            if stop_loss >= close or (target - close) / (close - stop_loss + 1e-10) < 0.8:
-                stop_loss = round(close - 1.2 * atr, 2)
+            if stop_loss >= close or (close - stop_loss) < (close * 0.008):
+                stop_loss = round(close - risk_buffer, 2)
 
             risk = close - stop_loss
-            risk_reward = round((target - close) / risk, 2) if risk > 0 else 0.8
+            risk_reward = round((target - close) / risk, 2) if risk > 0 else 1.5
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),
@@ -344,13 +356,15 @@ class TrendFollowingStrategy(BaseStrategy):
             curr["close"] < curr["open"] and
             close >= vwap * 0.992
         ):
-            target = round(close - min(1.2 * atr, close * 0.006), 2)
+            risk_buffer = max(2.0 * atr, close * 0.010)
+            reward_buffer = max(3.0 * atr, close * 0.015)
+            target = round(close - reward_buffer, 2)
             stop_loss = round(vwap + 0.5 * atr, 2)
-            if stop_loss <= close or (close - target) / (stop_loss - close + 1e-10) < 0.8:
-                stop_loss = round(close + 1.2 * atr, 2)
+            if stop_loss <= close or (stop_loss - close) < (close * 0.008):
+                stop_loss = round(close + risk_buffer, 2)
 
             risk = stop_loss - close
-            risk_reward = round((close - target) / risk, 2) if risk > 0 else 0.8
+            risk_reward = round((close - target) / risk, 2) if risk > 0 else 1.5
 
             return {
                 "symbol": str(curr.get("symbol", "UNKNOWN")),

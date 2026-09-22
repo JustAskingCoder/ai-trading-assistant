@@ -253,9 +253,9 @@ class LiveMarketService:
         low_p = float(zq.get("low", entry_price))
         vol = float(zq.get("volume", 0.0))
 
-        # Structural brackets calibrated for Scalp Trading
-        structural_risk = max(entry_price * 0.005, 1.0)
-        structural_reward = max(structural_risk * 1.2, entry_price * 0.006)
+        # Structural brackets calibrated for Intraday/Swing trading (min 1.0% stop-loss buffer, 1.5% target)
+        structural_risk = max(entry_price * 0.010, 1.5)
+        structural_reward = max(structural_risk * 1.5, entry_price * 0.015)
 
         if change_pct >= 0.25:
             signal = "BUY"
@@ -437,8 +437,9 @@ class LiveMarketService:
             quantity = 1
             min_step = 0.0001 if is_forex else 0.05
 
-            structural_risk = max(close_p * 0.005, 1.0 * atr)
-            structural_reward = max(structural_risk * 1.15, close_p * 0.006)
+            # Structural brackets calibrated for Intraday/Swing trading (min 1.0% stop-loss buffer, 1.5% target)
+            structural_risk = max(close_p * 0.010, 2.0 * atr)
+            structural_reward = max(structural_risk * 1.5, close_p * 0.015)
 
             if signal == "BUY":
                 action = "BUY"

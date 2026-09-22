@@ -248,8 +248,8 @@ export default function App() {
         const riskAmt =
           quote.max_risk && quote.max_risk > 0
             ? Number(quote.max_risk)
-            : Number((p * 0.005).toFixed(dec));
-        const rewardAmt = Math.max(riskAmt * 1.2, Number((p * 0.006).toFixed(dec)));
+            : Number((p * 0.010).toFixed(dec));
+        const rewardAmt = Math.max(riskAmt * 1.5, Number((p * 0.015).toFixed(dec)));
         const isSell = quote.action === 'SELL';
         let sl = quote.stop_loss;
         let tgt = quote.target;
@@ -309,8 +309,8 @@ export default function App() {
       const riskAmt =
         currentQuote.max_risk && currentQuote.max_risk > 0
           ? Number(currentQuote.max_risk)
-          : Number((p * 0.005).toFixed(dec));
-      const rewardAmt = Math.max(riskAmt * 1.2, Number((p * 0.006).toFixed(dec)));
+          : Number((p * 0.010).toFixed(dec));
+      const rewardAmt = Math.max(riskAmt * 1.5, Number((p * 0.015).toFixed(dec)));
       const isSell = currentQuote.action === 'SELL';
       let sl = currentQuote.stop_loss;
       let tgt = currentQuote.target;
@@ -355,10 +355,10 @@ export default function App() {
     const dec = isForex ? 4 : 2;
     const quantity = quote.quantity || 1;
 
-    // Compute guaranteed-pass scalp brackets (R:R >= 1.2)
+    // Compute guaranteed-pass swing/intraday brackets (R:R >= 1.5, 1.0% stop buffer)
     const riskAmount =
-      quote.max_risk && quote.max_risk > 0 ? Number(quote.max_risk) : Number((p * 0.005).toFixed(dec));
-    const rewardAmount = Math.max(riskAmount * 1.2, Number((p * 0.006).toFixed(dec)));
+      quote.max_risk && quote.max_risk > 0 ? Number(quote.max_risk) : Number((p * 0.010).toFixed(dec));
+    const rewardAmount = Math.max(riskAmount * 1.5, Number((p * 0.015).toFixed(dec)));
 
     let sl = quote.stop_loss !== undefined ? Number(quote.stop_loss) : undefined;
     let tgt = quote.target !== undefined ? Number(quote.target) : undefined;
@@ -450,19 +450,19 @@ export default function App() {
     const latestP = candles.length > 0 ? candles[candles.length - 1].close : 3000;
     const isForex = symbol.includes('USD') || symbol.includes('EUR') || symbol.includes('GBP');
     const dec = isForex ? 4 : 2;
-    const riskAmt = Number((latestP * 0.005).toFixed(dec));
-    const rewardAmt = Math.max(riskAmt * 1.2, Number((latestP * 0.006).toFixed(dec)));
+    const riskAmt = Number((latestP * 0.010).toFixed(dec));
+    const rewardAmt = Math.max(riskAmt * 1.5, Number((latestP * 0.015).toFixed(dec)));
     setSelectedSignalForOrder({
       symbol,
       timestamp: new Date().toISOString(),
-      strategy: 'Manual Quick Scalp',
+      strategy: 'Manual Virtual Trade',
       signal: 'BUY',
       confidence: 1.0,
       entry_price: latestP,
       stop_loss: Number((latestP - riskAmt).toFixed(dec)),
       target: Number((latestP + rewardAmt).toFixed(dec)),
-      risk_reward: 1.2,
-      reason: 'Manual 10-Minute Scalp Trade (1.2 R:R Calibrated)'
+      risk_reward: 1.5,
+      reason: 'Manual Virtual Trade (1.0% SL, 1.5% Target Breathing Room)'
     });
     setOrderModalOpen(true);
   };
