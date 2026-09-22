@@ -2617,6 +2617,12 @@ def test_forex_symbols_and_market_hours():
     assert crypto_status["status"] == "OPEN"
     assert "24/7" in crypto_status["trading_hours"]
 
+    # INR Forex pairs domestic hours
+    inr_status = get_market_trading_status("USDINR")
+    assert inr_status["market"] == "FOREX"
+    assert "09:00 - 15:30 IST" in inr_status["trading_hours"]
+
+
 
 def test_forex_synthetic_volume_and_vwap():
     """Verify synthetic proxy volume generation when volume is 0 and resulting VWAP calculation."""

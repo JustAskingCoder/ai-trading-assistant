@@ -140,9 +140,41 @@ def get_market_trading_status(symbol_or_market: str = "NSE") -> Dict[str, Any]:
             "next_open": None
         }
 
+    # 2. INR Currency Pairs check (USDINR, EURINR, GBPINR)
+    # Domestic Indian Rupee spot forex & currency derivatives market operates 09:00 - 15:30 IST.
+    inr_forex_symbols = {"USDINR", "EURINR", "GBPINR", "USDINR=X", "EURINR=X", "GBPINR=X"}
+    if clean in inr_forex_symbols:
+        is_weekday = weekday < 5  # Mon - Fri
+        market_hours = (dt_module.time(9, 0) <= t <= dt_module.time(15, 30))
+        is_open = is_weekday and market_hours
+        status = "OPEN" if is_open else "CLOSED"
+        if not is_weekday:
+            reason = "INR Market Closed for the Weekend"
+            next_open = "Monday at 09:00 AM IST"
+        elif t < dt_module.time(9, 0):
+            reason = "Pre-Market / INR Session Opens at 09:00 AM IST"
+            next_open = "Today at 09:00 AM IST"
+        elif t > dt_module.time(15, 30):
+            reason = "INR Spot Session Closed at 03:30 PM IST (For 24/5 live quotes, switch to EURUSD or GBPUSD)"
+            next_open = "Tomorrow at 09:00 AM IST" if weekday < 4 else "Monday at 09:00 AM IST"
+        else:
+            reason = "INR Domestic Interbank Session (09:00 - 15:30 IST)"
+            next_open = None
+
+        return {
+            "market": "FOREX",
+            "is_open": is_open,
+            "status": status,
+            "current_time_ist": ist_now.strftime("%H:%M:%S IST"),
+            "trading_hours": "09:00 - 15:30 IST (Mon - Fri)",
+            "message": "INR Spot Forex is Open" if is_open else "INR Spot Session Closed at 03:30 PM IST",
+            "reason": reason,
+            "next_open": next_open
+        }
+
     cat = get_market_category(symbol_or_market) if symbol_or_market not in ["NSE", "FOREX"] else symbol_or_market
 
-    # 2. 24/5 Forex check
+    # 3. Global 24/5 Forex check (EURUSD, GBPUSD, USDJPY, AUDUSD, USDCHF, GOLD)
     if cat == "FOREX":
         # Forex operates 24/5: Opens Monday ~02:30 IST, Closes Saturday ~02:30 IST
         is_open = True

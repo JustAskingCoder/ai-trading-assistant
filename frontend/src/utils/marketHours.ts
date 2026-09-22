@@ -93,6 +93,53 @@ export function getForexMarketStatus(): MarketTradingStatus {
 }
 
 /**
+ * Evaluates whether INR currency market (USD/INR, EUR/INR, GBP/INR) is open (09:00 - 15:30 IST).
+ */
+export function getINRForexMarketStatus(): MarketTradingStatus {
+  const ist = getISTDate();
+  const day = ist.getDay();
+  const hours = ist.getHours();
+  const minutes = ist.getMinutes();
+  const seconds = ist.getSeconds();
+  const timeInMinutes = hours * 60 + minutes;
+
+  const openTime = 9 * 60;        // 09:00 IST
+  const closeTime = 15 * 60 + 30; // 15:30 IST
+
+  const isWeekday = day >= 1 && day <= 5;
+  const isMarketHours = timeInMinutes >= openTime && timeInMinutes <= closeTime;
+  const isOpen = isWeekday && isMarketHours;
+
+  const pad = (n: number) => (n < 10 ? '0' + n : n);
+  const timeStr = `${pad(hours)}:${pad(minutes)}:${pad(seconds)} IST`;
+
+  let reason = 'INR Domestic Interbank Session';
+  let nextOpen: string | null = null;
+
+  if (!isWeekday) {
+    reason = 'INR Market Closed for the Weekend';
+    nextOpen = 'Monday at 09:00 AM IST';
+  } else if (timeInMinutes < openTime) {
+    reason = 'Pre-Market / INR Session Opens at 09:00 AM IST';
+    nextOpen = 'Today at 09:00 AM IST';
+  } else if (timeInMinutes > closeTime) {
+    reason = 'INR Spot Session Closed at 03:30 PM IST (Switch to EUR/USD or GBP/USD for 24/5 Live Trading)';
+    nextOpen = day === 5 ? 'Monday at 09:00 AM IST' : 'Tomorrow at 09:00 AM IST';
+  }
+
+  return {
+    market: 'FOREX',
+    is_open: isOpen,
+    status: isOpen ? 'OPEN' : 'CLOSED',
+    current_time_ist: timeStr,
+    trading_hours: '09:00 - 15:30 IST (Mon - Fri)',
+    message: isOpen ? 'INR Currency Market is Open' : 'INR Spot Session Closed at 03:30 PM IST',
+    reason,
+    next_open: nextOpen,
+  };
+}
+
+/**
  * Returns market trading status for any symbol or category.
  */
 export function getMarketStatusForSymbol(symbol: string): MarketTradingStatus {
@@ -115,10 +162,18 @@ export function getMarketStatusForSymbol(symbol: string): MarketTradingStatus {
     };
   }
 
-  // 2. Forex 24/5 check
+  // 2. INR Currency Pairs check (USDINR, EURINR, GBPINR)
+  const inrForexSymbols = [
+    'USDINR', 'EURINR', 'GBPINR', 'USDINR=X', 'EURINR=X', 'GBPINR=X'
+  ];
+  if (inrForexSymbols.includes(clean)) {
+    return getINRForexMarketStatus();
+  }
+
+  // 3. Global Forex 24/5 check
   const forexSymbols = [
-    'USDINR', 'EURUSD', 'GBPUSD', 'USDJPY', 'EURINR', 'GBPINR', 'AUDUSD', 'USDCHF', 'GOLD',
-    'USDINR=X', 'EURUSD=X', 'GBPUSD=X', 'JPY=X', 'EURINR=X', 'GBPINR=X', 'AUDUSD=X', 'CHF=X', 'GC=F'
+    'EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCHF', 'GOLD',
+    'EURUSD=X', 'GBPUSD=X', 'JPY=X', 'AUDUSD=X', 'CHF=X', 'GC=F'
   ];
   if (forexSymbols.includes(clean) || clean.includes('=X') || clean === 'FOREX') {
     return getForexMarketStatus();
