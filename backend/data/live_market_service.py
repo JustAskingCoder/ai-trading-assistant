@@ -18,6 +18,7 @@ from backend.data.market_simulator import simulator
 from backend.integrations.zerodha.kite_client import zerodha_client
 from backend.core.logging import logger
 from backend.core.config import settings
+from backend.ai.committee_service import committee_gate
 from backend.data.scanner_engine import (
     analyze_high_win_rate_scanners,
     detect_ohl_pattern,
@@ -484,6 +485,7 @@ class LiveMarketService:
             },
             "timestamp": zq.get("timestamp", datetime.now().isoformat())
         }
+        return committee_gate.gate_quote_action(payload, symbol=clean_sym)
 
     def get_market_tide(self) -> Dict[str, Any]:
         """
@@ -853,6 +855,7 @@ class LiveMarketService:
                 "suggested_window": 60 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 35.0) else (45 if (pd.notnull(last_candle.get("adx")) and float(last_candle["adx"]) >= 22.0) else 30),
                 "timestamp": str(last_candle.get("timestamp", datetime.now().isoformat()))
             }
+            quote_payload = committee_gate.gate_quote_action(quote_payload, symbol=clean_sym)
             self._quote_cache[cache_key] = (now_ts, quote_payload)
             return quote_payload
         except Exception as e:

@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { api } from './services/api';
-import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus } from './types';
+import { CandleData, PortfolioData, PositionData, TradeData, Signal, AIAnalysis, RiskStatus, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus, CommitteeDecision } from './types';
 import { getNSEMarketStatus, getMarketStatusForSymbol } from './utils/marketHours';
 import { getPrecisionForSymbol, getCurrencySymbol, formatPrice } from './utils/currency';
 import { CandlestickChart } from './components/charts/CandlestickChart';
@@ -11,6 +11,7 @@ import { PositionTable } from './components/trading/PositionTable';
 import { PaperOrderModal } from './components/trading/PaperOrderModal';
 import { BacktestView } from './components/backtesting/BacktestView';
 import { MultiAssetWatchlist } from './components/dashboard/MultiAssetWatchlist';
+import { ResearchDeskPanel } from './components/dashboard/ResearchDeskPanel';
 import { ZerodhaConnectModal } from './components/dashboard/ZerodhaConnectModal';
 import {
   Play, Pause, Square, RotateCcw, Upload, ShieldAlert,
@@ -35,6 +36,15 @@ export default function App() {
   const [activeSignal, setActiveSignal] = useState<Signal | null>(null);
   const [aiAnalysis, setAiAnalysis] = useState<AIAnalysis | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
+
+  // AI Research Desk committee state (per-symbol verdicts, history & run status)
+  const [committeeBySymbol, setCommitteeBySymbol] = useState<Record<string, CommitteeDecision>>({});
+  const [committeeLoading, setCommitteeLoading] = useState(false);
+  const [committeeHistory, setCommitteeHistory] = useState<CommitteeDecision[]>([]);
+  const committeeMapRef = useRef<Record<string, CommitteeDecision>>({});
+  useEffect(() => {
+    committeeMapRef.current = committeeBySymbol;
+  }, [committeeBySymbol]);
   const [orderAlert, setOrderAlert] = useState<{
     type: 'success' | 'error';
     message: string;
@@ -151,6 +161,18 @@ export default function App() {
     fetchData();
     api.getZerodhaStatus().then(setZerodhaStatus).catch(() => {});
     api.getTrendAnalysis(symbol).then(setTrendAnalysis).catch(() => {});
+    api.getCommitteeHistory()
+      .then((entries) => {
+        if (!Array.isArray(entries)) return;
+        setCommitteeHistory(entries);
+        const merged: Record<string, CommitteeDecision> = { ...committeeMapRef.current };
+        entries.forEach((d) => {
+          const sym = (d as any).symbol as string | undefined;
+          if (sym) merged[sym] = d;
+        });
+        setCommitteeBySymbol(merged);
+      })
+      .catch(() => {});
   }, [symbol]);
 
   // Periodic background refresh for portfolio & open virtual positions (every 3 seconds)
@@ -510,6 +532,25 @@ export default function App() {
       alert(`AI Analysis Failed: ${e?.response?.data?.detail || e.message || 'Unknown error'}`);
     } finally {
       setAiLoading(false);
+    }
+  };
+
+  // Run the 6-analyst pre-trade committee for a symbol (backend: POST /api/ai/committee)
+  const handleRunCommittee = async (sym: string) => {
+    setCommitteeLoading(true);
+    try {
+      const decision = await api.runCommittee({
+        symbol: sym,
+        price: candles.length > 0 ? candles[candles.length - 1].close : undefined,
+        timeframe: '5m',
+      });
+      setCommitteeBySymbol(prev => ({ ...prev, [sym]: decision }));
+      setCommitteeHistory(prev => [decision, ...prev.filter(d => (d as any).symbol !== sym)]);
+    } catch (e: any) {
+      console.error('Committee run error:', e);
+      alert(`Committee Run Failed: ${e?.response?.data?.detail || e.message || 'Unknown error'}`);
+    } finally {
+      setCommitteeLoading(false);
     }
   };
 
@@ -972,6 +1013,16 @@ export default function App() {
             onSelectSymbol={handleSelectSymbol}
             onPlaceOrder={handleTradeFromWatchlist}
             onQuotesUpdate={handleWatchlistQuotesUpdate}
+            committees={committeeBySymbol}
+          />
+
+          {/* AI Research Desk — 6-Analyst Consensus Committee */}
+          <ResearchDeskPanel
+            symbol={symbol}
+            decision={committeeBySymbol[symbol] || null}
+            loading={committeeLoading}
+            history={committeeHistory}
+            onRun={handleRunCommittee}
           />
 
           {/* Main Candlestick Chart */}
@@ -983,6 +1034,7 @@ export default function App() {
               signal={activeSignal}
               symbol={symbol}
               trendAnalysis={trendAnalysis}
+              committee={committeeBySymbol[symbol] || null}
               onQuickOrder={handleQuickOrder}
               onAnalyzeAI={handleAnalyzeAI}
               onPaperTrade={handlePaperOrder}
@@ -1003,6 +1055,7 @@ export default function App() {
               analysis={aiAnalysis}
               loading={aiLoading}
               symbol={activeSignal?.symbol || symbol}
+              committee={committeeBySymbol[activeSignal?.symbol || symbol] || null}
               onDirectOrder={handleDirectOrder}
             />
           </div>

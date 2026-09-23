@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Signal, TrendAnalysis } from '../../types';
-import { Sparkles, ArrowUpRight, Zap, CheckCircle2, AlertTriangle, TrendingUp } from 'lucide-react';
+import { Signal, TrendAnalysis, CommitteeDecision } from '../../types';
+import { Sparkles, ArrowUpRight, Zap, CheckCircle2, AlertTriangle, TrendingUp, ShieldAlert } from 'lucide-react';
 import { api } from '../../services/api';
 import { getMarketStatusForSymbol } from '../../utils/marketHours';
 import { formatPrice, getCurrencySymbol, getPrecisionForSymbol } from '../../utils/currency';
+import { committeeDowngraded, committeeHoldReasons } from '../../utils/committee';
 
 interface TradeFeedback {
   type: 'success' | 'rejected';
@@ -20,6 +21,7 @@ interface Props {
   onPaperTrade: (signal: Signal) => void;
   onIgnore: () => void;
   onDirectOrder?: (signal: Signal, qty: number, windowMinutes?: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+  committee?: CommitteeDecision | null;
 }
 
 export const SignalCard: React.FC<Props> = ({
@@ -30,7 +32,8 @@ export const SignalCard: React.FC<Props> = ({
   onAnalyzeAI,
   onPaperTrade,
   onIgnore,
-  onDirectOrder
+  onDirectOrder,
+  committee
 }) => {
   const [executing, setExecuting] = useState(false);
   const [feedback, setFeedback] = useState<TradeFeedback | null>(null);
@@ -106,6 +109,12 @@ export const SignalCard: React.FC<Props> = ({
   const sym = getCurrencySymbol(activeSym);
   const dec = getPrecisionForSymbol(activeSym, signal?.entry_price);
   const isBuy = signal.signal === 'BUY';
+  const signalSide = isBuy || signal.signal === 'SELL' ? signal.signal as 'BUY' | 'SELL' : null;
+  const gatedHold = signalSide ? committeeDowngraded(committee, signalSide) : false;
+  const committeeReasons = committeeHoldReasons(
+    committee,
+    'Committee sign-off not available. Run the research desk to approve the side.'
+  );
   const isOutOfRange = (isBuy && signal.entry_price <= signal.stop_loss) || (!isBuy && signal.entry_price >= signal.stop_loss);
   const qty = 1;
   const totalInvestment = (qty * signal.entry_price).toFixed(dec);
@@ -217,31 +226,43 @@ export const SignalCard: React.FC<Props> = ({
             </span>
           </div>
 
-          {/* Big bold actionable headline */}
+          {/* Big bold actionable headline or committee-gated HOLD */}
           <div
             className={`mt-3 rounded-lg px-4 py-3 border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shadow-inner ${
-              isBuy
+              gatedHold
+                ? 'bg-amber-500/10 border-amber-500/30'
+                : isBuy
                 ? 'bg-emerald-500/10 border-emerald-500/30'
                 : 'bg-rose-500/10 border-rose-500/30'
             }`}
           >
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                Actionable Signal
+                {gatedHold ? 'Committee Verdict (Research Desk)' : 'Actionable Signal'}
               </div>
               <div
                 className={`text-lg sm:text-xl font-black tracking-tight ${
-                  isBuy ? 'text-emerald-400' : 'text-rose-400'
+                  gatedHold ? 'text-amber-400' : isBuy ? 'text-emerald-400' : 'text-rose-400'
                 }`}
               >
-                {isBuy
+                {gatedHold
+                  ? `HOLD ${activeSym} — COMMITTEE DID NOT APPROVE ${signalSide}`
+                  : isBuy
                   ? `RECOMMENDED ACTION: BUY ${qty} UNIT (Target: +${sym}${targetProfitAmount} · ${effectiveWindow}m Window)`
                   : `RECOMMENDED ACTION: SELL ${qty} UNIT (Target: +${sym}${targetProfitAmount} · ${effectiveWindow}m Window)`}
               </div>
+              {gatedHold && (
+                <div className="mt-1 text-xs text-slate-300">
+                  <span className="font-semibold text-amber-300">Why HOLD:</span>{' '}
+                  {committeeReasons.join(' ')}
+                </div>
+              )}
             </div>
-            <div className="text-xs font-semibold text-slate-300 sm:text-right">
-              <span className="text-slate-400">Target Entry:</span> {sym}{signal.entry_price.toFixed(dec)}
-            </div>
+            {!gatedHold && (
+              <div className="text-xs font-semibold text-slate-300 sm:text-right">
+                <span className="text-slate-400">Target Entry:</span> {sym}{signal.entry_price.toFixed(dec)}
+              </div>
+            )}
           </div>
 
           {!mktStatus.is_open && (
@@ -320,30 +341,40 @@ export const SignalCard: React.FC<Props> = ({
         )}
       </div>
 
-      {/* Prominent Action Buttons */}
+      {/* Prominent Action Buttons (gated to HOLD until committee approves the side) */}
       <div className="mt-4 pt-3 border-t border-dark-700/80 flex flex-wrap items-center gap-2.5">
-        <button
-          onClick={handlePlaceDirectOrder}
-          disabled={executing || isOutOfRange}
-          className={`flex-1 min-w-[200px] flex items-center justify-center gap-2 rounded-lg py-2.5 px-4 text-xs sm:text-sm font-black text-white transition-all shadow-md ${
-            isOutOfRange
-              ? 'bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed'
-              : isBuy
-              ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
-              : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/30'
-          } disabled:opacity-50 disabled:cursor-not-allowed`}
-        >
-          <Zap className="h-4 w-4 fill-current" />
-          <span>
-            {isOutOfRange
-              ? '⚠️ SIGNAL OUT OF RANGE'
-              : executing
-              ? 'EXECUTING ORDER...'
-              : isBuy
-              ? `⚡ PLACE ORDER (BUY ${qty} UNIT · ${sym}${totalInvestment})`
-              : `⚡ PLACE ORDER (SELL ${qty} UNIT · ${sym}${totalInvestment})`}
-          </span>
-        </button>
+        {gatedHold ? (
+          <div className="flex-1 min-w-[200px] flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs font-semibold text-amber-200">
+            <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
+            <span>
+              <strong>HOLD — not approved by committee.</strong> No {signalSide} order may be placed until
+              the research desk signs off ({committeeReasons.join(' ')}).
+            </span>
+          </div>
+        ) : (
+          <button
+            onClick={handlePlaceDirectOrder}
+            disabled={executing || isOutOfRange}
+            className={`flex-1 min-w-[200px] flex items-center justify-center gap-2 rounded-lg py-2.5 px-4 text-xs sm:text-sm font-black text-white transition-all shadow-md ${
+              isOutOfRange
+                ? 'bg-slate-700 text-slate-400 border border-slate-600 cursor-not-allowed'
+                : isBuy
+                ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/30'
+                : 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/30'
+            } disabled:opacity-50 disabled:cursor-not-allowed`}
+          >
+            <Zap className="h-4 w-4 fill-current" />
+            <span>
+              {isOutOfRange
+                ? '⚠️ SIGNAL OUT OF RANGE'
+                : executing
+                ? 'EXECUTING ORDER...'
+                : isBuy
+                ? `⚡ PLACE ORDER (BUY ${qty} UNIT · ${sym}${totalInvestment})`
+                : `⚡ PLACE ORDER (SELL ${qty} UNIT · ${sym}${totalInvestment})`}
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => onAnalyzeAI(signal)}
@@ -352,13 +383,15 @@ export const SignalCard: React.FC<Props> = ({
           <Sparkles className="h-3.5 w-3.5" /> ANALYZE WITH AI
         </button>
 
-        <button
-          onClick={() => onPaperTrade(signal)}
-          title="Customize order parameters before submitting"
-          className="flex items-center gap-1.5 rounded-lg border border-dark-600 bg-dark-700 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-dark-600 transition-colors"
-        >
-          <ArrowUpRight className="h-3.5 w-3.5" /> CUSTOM
-        </button>
+        {!gatedHold && (
+          <button
+            onClick={() => onPaperTrade(signal)}
+            title="Customize order parameters before submitting"
+            className="flex items-center gap-1.5 rounded-lg border border-dark-600 bg-dark-700 px-3 py-2.5 text-xs font-semibold text-slate-300 hover:bg-dark-600 transition-colors"
+          >
+            <ArrowUpRight className="h-3.5 w-3.5" /> CUSTOM
+          </button>
+        )}
 
         <button
           onClick={onIgnore}

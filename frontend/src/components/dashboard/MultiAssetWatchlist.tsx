@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { WatchlistQuote } from '../../types';
+import { WatchlistQuote, CommitteeDecision } from '../../types';
 import { api } from '../../services/api';
 import { getNSEMarketStatus, getMarketStatusForSymbol, getForexMarketStatus } from '../../utils/marketHours';
 import { formatPrice as formatCurrencyPrice, getCurrencySymbol, getPrecisionForSymbol } from '../../utils/currency';
+import { committeeDowngraded, committeeHoldReasons } from '../../utils/committee';
 import {
   TrendingUp, TrendingDown, Minus, RefreshCw, Activity,
   LayoutGrid, Table, Zap, Target, Shield, ArrowUpRight, ArrowDownRight,
-  Flame, Crosshair, Sparkles
+  Flame, Crosshair, Sparkles, ShieldAlert
 } from 'lucide-react';
 
 interface Props {
@@ -14,6 +15,7 @@ interface Props {
   onSelectSymbol: (symbol: string) => void;
   onPlaceOrder?: (quote: WatchlistQuote) => void;
   onQuotesUpdate?: (quotes: WatchlistQuote[]) => void;
+  committees?: Record<string, CommitteeDecision>;
 }
 
 type FilterCategory =
@@ -343,6 +345,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
   onSelectSymbol,
   onPlaceOrder,
   onQuotesUpdate,
+  committees,
 }) => {
   const [quotes, setQuotes] = useState<WatchlistQuote[]>(() =>
     FALLBACK_QUOTES.map(enrichQuote)
@@ -440,6 +443,35 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
       </span>
     );
   };
+
+  // Committee gating for a quote's BUY/SELL action
+  const gatedQuote = (q: WatchlistQuote): { banned: boolean; reasons: string[]; side: 'BUY' | 'SELL' | null } => {
+    const a = q.action;
+    if (a !== 'BUY' && a !== 'SELL') return { banned: false, reasons: [], side: null };
+    const comm = committees?.[q.symbol];
+    return {
+      banned: committeeDowngraded(comm, a),
+      reasons: committeeHoldReasons(comm, `Committee has not approved ${a} yet.`),
+      side: a,
+    };
+  };
+
+  const renderHoldBanner = (side: string) => (
+    <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/15 px-2 py-1 text-[11px] font-black text-amber-300 border border-amber-500/40">
+      <ShieldAlert className="h-3 w-3" />
+      🟡 HOLD — {side} NOT APPROVED
+    </span>
+  );
+
+  const renderHoldButton = (reasons: string[]) => (
+    <span
+      title={reasons.join('\n')}
+      className="w-full flex items-center justify-center gap-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] font-black text-amber-300 cursor-default"
+    >
+      <ShieldAlert className="h-3.5 w-3.5" />
+      HOLD — {reasons[0] || 'No committee sign-off'}
+    </span>
+  );
 
   return (
     <div className="rounded-2xl border border-dark-600 bg-dark-800/95 p-4 shadow-xl backdrop-blur">
@@ -667,6 +699,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
             const isSelected = item.symbol === selectedSymbol;
             const isPositive = (item.change_percentage ?? 0) >= 0;
             const action = item.action || 'WAIT';
+            const gated = gatedQuote(item);
 
             return (
               <div
@@ -802,7 +835,12 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                     <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
                       Recommended Action
                     </div>
-                    {renderActionBanner(item.action, item.quantity)}
+                    {gated.banned ? renderHoldBanner(gated.side!) : renderActionBanner(item.action, item.quantity)}
+                    {gated.banned && (
+                      <div className="mt-1 text-[9px] text-amber-400/90 leading-snug">
+                        {gated.reasons[0]}
+                      </div>
+                    )}
                     {item.patterns && item.patterns.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-1.5">
                         {item.patterns.slice(0, 2).map((p, pIdx) => (
@@ -850,29 +888,33 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                   </div>
                 </div>
 
-                {/* 1-Click Action Button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    if (onPlaceOrder) {
-                      onPlaceOrder(item);
-                    }
-                  }}
-                  className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-black transition-all shadow-md active:scale-95 ${
-                    action === 'BUY'
-                      ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
+                {/* 1-Click Action Button (committee-gated) */}
+                {gated.banned ? (
+                  renderHoldButton(gated.reasons)
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (onPlaceOrder) {
+                        onPlaceOrder(item);
+                      }
+                    }}
+                    className={`w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-black transition-all shadow-md active:scale-95 ${
+                      action === 'BUY'
+                        ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-950/40'
+                        : action === 'SELL'
+                        ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/40'
+                        : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-950/40'
+                    }`}
+                  >
+                    <Zap className="h-3.5 w-3.5 fill-current" />
+                    {action === 'BUY'
+                      ? `⚡ BUY ${item.quantity || 1} SHARE`
                       : action === 'SELL'
-                      ? 'bg-rose-600 hover:bg-rose-500 text-white shadow-rose-950/40'
-                      : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-indigo-950/40'
-                  }`}
-                >
-                  <Zap className="h-3.5 w-3.5 fill-current" />
-                  {action === 'BUY'
-                    ? `⚡ BUY ${item.quantity || 1} SHARE`
-                    : action === 'SELL'
-                    ? `⚡ SELL ${item.quantity || 1} SHARE`
-                    : '⚡ QUICK SCALP TRADE'}
-                </button>
+                      ? `⚡ SELL ${item.quantity || 1} SHARE`
+                      : '⚡ QUICK SCALP TRADE'}
+                  </button>
+                )}
               </div>
             );
           })}
@@ -901,6 +943,7 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                 const isSelected = item.symbol === selectedSymbol;
                 const isPositive = (item.change_percentage ?? 0) >= 0;
                 const action = item.action || 'WAIT';
+                const gated = gatedQuote(item);
 
                 return (
                   <tr
@@ -994,7 +1037,12 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
                     {/* Action Decision */}
                     <td className="px-4 py-3.5 text-center">
                       <div className="flex flex-col items-center gap-1">
-                        {renderActionBanner(item.action, item.quantity)}
+                        {gated.banned ? renderHoldBanner(gated.side!) : renderActionBanner(item.action, item.quantity)}
+                        {gated.banned && (
+                          <div className="max-w-[150px] text-[9px] text-amber-400/90 leading-snug">
+                            {gated.reasons[0]}
+                          </div>
+                        )}
                         {item.patterns && item.patterns.length > 0 && (
                           <div className="flex flex-wrap justify-center gap-1">
                             {item.patterns.slice(0, 1).map((p, pIdx) => (
@@ -1038,24 +1086,34 @@ export const MultiAssetWatchlist: React.FC<Props> = ({
 
                     {/* 1-Click Execution */}
                     <td className="px-4 py-3.5 text-center">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (onPlaceOrder) {
-                            onPlaceOrder(item);
-                          }
-                        }}
-                        className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-black transition-all shadow active:scale-95 ${
-                          action === 'BUY'
-                            ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                            : action === 'SELL'
-                            ? 'bg-rose-600 hover:bg-rose-500 text-white'
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white'
-                        }`}
-                      >
-                        <Zap className="h-3 w-3 fill-current" />
-                        {action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'QUICK SCALP'}
-                      </button>
+                      {gated.banned ? (
+                        <span
+                          title={gated.reasons.join('\n')}
+                          className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[10px] font-black text-amber-300 cursor-default"
+                        >
+                          <ShieldAlert className="h-3 w-3" />
+                          HOLD — {gated.reasons[0] || 'No sign-off'}
+                        </span>
+                      ) : (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (onPlaceOrder) {
+                              onPlaceOrder(item);
+                            }
+                          }}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-black transition-all shadow active:scale-95 ${
+                            action === 'BUY'
+                              ? 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                              : action === 'SELL'
+                              ? 'bg-rose-600 hover:bg-rose-500 text-white'
+                              : 'bg-indigo-600 hover:bg-indigo-500 text-white'
+                          }`}
+                        >
+                          <Zap className="h-3 w-3 fill-current" />
+                          {action === 'BUY' ? 'BUY' : action === 'SELL' ? 'SELL' : 'QUICK SCALP'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 );
