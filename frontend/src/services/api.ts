@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus, ScannerSummary, TradeAutopsyData, AdaptiveShieldData } from '../types';
+import { CandleData, PortfolioData, PositionData, TradeData, AIAnalysis, RiskStatus, Signal, WatchlistQuote, ZerodhaStatus, TrendAnalysis, MarketTradingStatus, ScannerSummary, TradeAutopsyData, AdaptiveShieldData, CommitteeDecision, CommitteeRequest } from '../types';
 
 const client = axios.create({
   baseURL: '/api'
@@ -54,6 +54,10 @@ export const api = {
   }) => client.post('/paper/orders', order).then(r => r.data),
   analyzeWithAI: (data: any, provider?: string): Promise<AIAnalysis> =>
     client.post('/ai/analyze', data, { params: { provider } }).then(r => r.data),
+  runCommittee: (params: CommitteeRequest): Promise<CommitteeDecision> =>
+    client.post('/ai/committee', params).then(r => r.data),
+  getCommitteeHistory: (): Promise<CommitteeDecision[]> =>
+    client.get('/ai/committee/history').then(r => r.data),
   runBacktest: (params: { symbol: string; strategy: string; initial_capital?: number; risk_percentage?: number }) =>
     client.post('/backtest', params).then(r => r.data),
   controlSimulator: (action: 'start' | 'pause' | 'stop' | 'reset', speed = 1.0) =>
