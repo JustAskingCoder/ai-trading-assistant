@@ -187,6 +187,52 @@ class SystemLog(Base):
     metadata_info = Column(JSON, nullable=True)
 
 
+class CommitteeSession(Base):
+    """One run of the 6-analyst pre-trade research desk for a symbol."""
+
+    __tablename__ = "committee_sessions"
+
+    id = Column(Integer, primary_key=True, index=True)
+    symbol = Column(String(50), index=True, nullable=False)
+    timeframe = Column(String(10), default="5m")
+    verdict = Column(String(10), nullable=False)  # BUY, SELL, HOLD
+    overall_confidence = Column(Float, default=0.0)
+    num_agree = Column(Integer, default=0)
+    risk_vetoed = Column(Boolean, default=False)
+    reasons = Column(JSON, nullable=True)
+    decision = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    analyst_verdicts = relationship(
+        "CommitteeAnalystVerdict",
+        back_populates="session",
+        cascade="all, delete-orphan"
+    )
+
+
+class CommitteeAnalystVerdict(Base):
+    """Per-analyst verdict recorded for a committee session."""
+
+    __tablename__ = "committee_analyst_verdicts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    session_id = Column(Integer, ForeignKey("committee_sessions.id"), nullable=False, index=True)
+    analyst_role = Column(String(50), nullable=False)
+    side = Column(String(10), nullable=False)
+    confidence = Column(Float, default=0.0)
+    top_factor = Column(String(255), nullable=True)
+    supporting_factors = Column(JSON, nullable=True)
+    risk_flags = Column(JSON, nullable=True)
+    rationale = Column(Text, nullable=True)
+    weight = Column(Float, default=1.0)
+    veto = Column(Boolean, default=False)
+    provider = Column(String(30), nullable=True)
+    model = Column(String(50), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    session = relationship("CommitteeSession", back_populates="analyst_verdicts")
+
+
 class TradeAutopsy(Base):
     __tablename__ = "trade_autopsies"
 
