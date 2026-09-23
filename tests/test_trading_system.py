@@ -2728,3 +2728,399 @@ def test_forex_api_endpoints():
 
 
 
+
+
+# =============================================================================
+# Epic 23 — Pre-Trade AI Research Desk Committee (task-044 / task-045)
+# =============================================================================
+
+def _mk_verdict(role, side, confidence=0.7, weight=1.0, veto=False, risk_flags=None):
+    from backend.ai.analyst_schemas import AnalystVerdict
+    return AnalystVerdict(
+        analyst_role=role,
+        side=side,
+        confidence=confidence,
+        weight=weight,
+        veto=veto,
+        risk_flags=risk_flags or [],
+        top_factor=f"{role} factor",
+        supporting_factors=[f"{role} support"],
+    )
+
+
+def test_analyst_verdict_schema_validation():
+    """AnalystVerdict validates sides/confidence; CommitteeDecision aggregates field set."""
+    from backend.ai.analyst_schemas import AnalystVerdict, CommitteeDecision
+    import pydantic
+
+    v = AnalystVerdict(analyst_role="TECHNICAL_TREND", side="BUY", confidence=0.82)
+    assert v.analyst_role == "TECHNICAL_TREND"
+    assert v.side == "BUY"
+    assert v.weight == 1.0
+    assert v.veto is False
+
+    with pytest.raises(pydantic.ValidationError):
+        AnalystVerdict(analyst_role="TECHNICAL_TREND", side="GO", confidence=1.2)
+
+    d = CommitteeDecision(verdict="HOLD", overall_confidence=0.5, num_agree=3)
+    assert d.total_analysts == 6
+    assert "timestamp" in d.model_dump()
+    assert set(("verdict", "overall_confidence", "num_agree", "risk_vetoed", "reasons")).issubset(
+        d.model_dump().keys()
+    )
+
+
+def test_committee_majority_buy():
+    """3 of 6 analysts on BUY => weighted majority passes (>=3/6)."""
+    from backend.ai.committee_consensus import CommitteeConsensus
+
+    verdicts = [
+        _mk_verdict("TECHNICAL_TREND", "BUY", 0.8),
+        _mk_verdict("PATTERN_PRICE_ACTION", "BUY", 0.7),
+        _mk_verdict("VOLUME_LIQUIDITY", "BUY", 0.65),
+        _mk_verdict("MARKET_STRUCTURE", "HOLD", 0.5),
+        _mk_verdict("NEWS_SENTIMENT", "HOLD", 0.45),
+        _mk_verdict("RISK_EXECUTION", "HOLD", 0.9),
+    ]
+    decision = CommitteeConsensus().decide(verdicts, symbol="TESTC")
+    assert decision.verdict == "BUY"
+    assert decision.num_agree == 3
+    assert decision.risk_vetoed is False
+    assert decision.overall_confidence > 0.6
+    assert any("BUY" in r for r in decision.reasons)
+
+
+def test_committee_majority_sell():
+    """3 of 6 analysts on SELL => weighted majority passes (>=3/6)."""
+    from backend.ai.committee_consensus import CommitteeConsensus
+
+    verdicts = [
+        _mk_verdict("TECHNICAL_TREND", "SELL", 0.8),
+        _mk_verdict("PATTERN_PRICE_ACTION", "SELL", 0.7),
+        _mk_verdict("VOLUME_LIQUIDITY", "SELL", 0.6),
+        _mk_verdict("MARKET_STRUCTURE", "HOLD", 0.5),
+        _mk_verdict("NEWS_SENTIMENT", "BUY", 0.4),
+        _mk_verdict("RISK_EXECUTION", "HOLD", 0.9),
+    ]
+    decision = CommitteeConsensus().decide(verdicts, symbol="TESTC")
+    assert decision.verdict == "SELL"
+    assert decision.num_agree == 3
+
+
+def test_committee_no_majority_hold_fallback():
+    """No side reaches 3/6 => committee defaults to HOLD."""
+    from backend.ai.committee_consensus import CommitteeConsensus
+
+    verdicts = [
+        _mk_verdict("TECHNICAL_TREND", "BUY", 0.7),
+        _mk_verdict("PATTERN_PRICE_ACTION", "SELL", 0.7),
+        _mk_verdict("VOLUME_LIQUIDITY", "HOLD", 0.5),
+        _mk_verdict("MARKET_STRUCTURE", "HOLD", 0.5),
+        _mk_verdict("NEWS_SENTIMENT", "HOLD", 0.4),
+        _mk_verdict("RISK_EXECUTION", "HOLD", 0.9),
+    ]
+    decision = CommitteeConsensus().decide(verdicts, symbol="TESTC")
+    assert decision.verdict == "HOLD"
+    assert decision.risk_vetoed is False
+    assert decision.num_agree == 3
+    assert any("HOLD" in r for r in decision.reasons)
+
+
+def test_committee_risk_veto_downgrades_to_hold_with_reasons():
+    """3/6 BUY but risk analyst vetoes => downgraded to HOLD with veto reasons."""
+    from backend.ai.committee_consensus import CommitteeConsensus
+
+    verdicts = [
+        _mk_verdict("TECHNICAL_TREND", "BUY", 0.8),
+        _mk_verdict("PATTERN_PRICE_ACTION", "BUY", 0.7),
+        _mk_verdict("VOLUME_LIQUIDITY", "BUY", 0.65),
+        _mk_verdict("MARKET_STRUCTURE", "HOLD", 0.5),
+        _mk_verdict("NEWS_SENTIMENT", "HOLD", 0.45),
+        _mk_verdict("RISK_EXECUTION", "HOLD", 0.1, veto=True, risk_flags=["Kill switch ACTIVE"]),
+    ]
+    decision = CommitteeConsensus().decide(verdicts, symbol="TESTC")
+    assert decision.verdict == "HOLD"
+    assert decision.risk_vetoed is True
+    assert any("RISK VETO" in r for r in decision.reasons)
+    assert any("Kill switch" in r for r in decision.reasons)
+    assert decision.overall_confidence <= 0.35
+
+
+@pytest.mark.asyncio
+async def test_analyst_no_key_local_heuristic_path():
+    """With no API key configured, analysts fall back to deterministic local heuristics."""
+    from backend.ai.technical_trend import TechnicalTrendAnalyst
+    from backend.ai.pattern_price_action import PatternPriceActionAnalyst
+    from backend.ai.news_sentiment import NewsSentimentAnalyst
+
+    data = {
+        "symbol": "TEST_AI",
+        "price": 100.0,
+        "strategy_signal": "BUY",
+        "indicators": {"rsi": 58, "ema20": 102.0, "ema50": 100.0, "vwap": 100.5, "atr": 1.0, "adx": 24},
+        "patterns": [],
+        "change_pct": 1.2,
+        "market_tide": "BULLISH",
+        "macro_trend": "BULLISH",
+        "entry_price": 100.0,
+        "stop_loss": 97.5,
+        "target": 105.0,
+        "risk_reward": 2.0,
+    }
+    verdict = await TechnicalTrendAnalyst().analyze(data)
+    assert verdict.analyst_role == "TECHNICAL_TREND"
+    assert verdict.side in ("BUY", "SELL", "HOLD")
+    assert verdict.provider == "LocalHeuristic"
+    assert verdict.confidence > 0
+
+    pattern = await PatternPriceActionAnalyst().analyze(data)
+    assert pattern.side in ("BUY", "SELL", "HOLD")
+    news = await NewsSentimentAnalyst().analyze(data)
+    assert news.side in ("BUY", "SELL", "HOLD")
+    assert news.provider == "LocalHeuristic"
+
+
+def test_risk_analyst_vetoes_missing_stop_loss():
+    """Risk/Execution analyst vetoes an actionable side when the mandatory SL is missing."""
+    from backend.ai.risk_execution import RiskExecutionAnalyst
+
+    verdict = RiskExecutionAnalyst().analyze({
+        "symbol": "TEST_AI",
+        "price": 100.0,
+        "entry_price": 100.0,
+        "stop_loss": 0.0,
+        "target": 105.0,
+        "risk_reward": 2.5,
+        "strategy_signal": "BUY",
+    })
+    assert verdict.analyst_role == "RISK_EXECUTION"
+    assert verdict.side == "HOLD"
+    assert verdict.veto is True
+    assert any("Stop-Loss" in f for f in verdict.risk_flags)
+
+
+def test_risk_analyst_approves_valid_bracket():
+    """Risk/Execution analyst does not veto a structurally valid bracket."""
+    from backend.ai.risk_execution import RiskExecutionAnalyst
+
+    verdict = RiskExecutionAnalyst().analyze({
+        "symbol": "TEST_AI",
+        "price": 100.0,
+        "entry_price": 100.0,
+        "stop_loss": 97.5,
+        "target": 105.0,
+        "risk_reward": 2.0,
+        "strategy_signal": "BUY",
+    })
+    assert verdict.side == "BUY"
+    assert verdict.veto is False
+
+
+@pytest.mark.asyncio
+async def test_committee_service_runs_full_team_and_persists():
+    """run_committee executes all 6 analysts, persists a session and per-analyst rows."""
+    from backend.ai.committee_service import CommitteeService
+    from backend.ai.committee_consensus import RISK_ROLE
+    from backend.database.session import SessionLocal
+    from backend.database.models import CommitteeSession, CommitteeAnalystVerdict
+
+    from backend.ai.committee_service import clear_committee_gate_cache
+    clear_committee_gate_cache()
+
+    data = {
+        "symbol": "TEST_CMT",
+        "price": 100.0,
+        "strategy_signal": "BUY",
+        "indicators": {"rsi": 58, "ema20": 102.0, "ema50": 100.0, "vwap": 100.5, "atr": 1.0, "adx": 24},
+        "patterns": [],
+        "market_tide": "NEUTRAL",
+        "macro_trend": "NEUTRAL",
+        "entry_price": 100.0,
+        "stop_loss": 98.0,
+        "target": 104.0,
+        "risk_reward": 2.0,
+        "timeframe": "5m",
+    }
+    service = CommitteeService()
+    decision, verdicts, session_id = await service.run_committee("TEST_CMT", data, persist=True)
+    assert len(verdicts) == 6
+    assert {v.analyst_role for v in verdicts} == {
+        "TECHNICAL_TREND", "PATTERN_PRICE_ACTION", "VOLUME_LIQUIDITY",
+        "MARKET_STRUCTURE", "NEWS_SENTIMENT", RISK_ROLE,
+    }
+    assert decision.verdict in ("BUY", "SELL", "HOLD")
+    assert session_id is not None
+
+    db = SessionLocal()
+    try:
+        session = db.query(CommitteeSession).filter(CommitteeSession.symbol == "TEST_CMT").order_by(
+            CommitteeSession.id.desc()).first()
+        assert session is not None
+        assert session.verdict == decision.verdict
+        assert session.num_agree == decision.num_agree
+        assert session.risk_vetoed == decision.risk_vetoed
+        rows = db.query(CommitteeAnalystVerdict).filter(CommitteeAnalystVerdict.session_id == session.id).all()
+        assert len(rows) == 6
+    finally:
+        db.close()
+
+
+def test_api_committee_post_and_history():
+    """POST /api/ai/committee returns decision + 6 verdicts; GET history lists persisted runs."""
+    from fastapi.testclient import TestClient
+    from backend.main import app
+    from backend.database.session import SessionLocal
+    from backend.database.models import CommitteeSession, CommitteeAnalystVerdict
+
+    data = {
+        "symbol": "TEST_API_CMT",
+        "timeframe": "5m",
+        "data": {
+            "price": 100.0,
+            "strategy_signal": "BUY",
+            "indicators": {"rsi": 60, "ema20": 103.0, "ema50": 101.0, "vwap": 101.5, "atr": 1.0, "adx": 26},
+            "patterns": [],
+            "market_tide": "NEUTRAL",
+            "macro_trend": "NEUTRAL",
+            "entry_price": 100.0,
+            "stop_loss": 98.0,
+            "target": 105.0,
+            "risk_reward": 2.5,
+        },
+    }
+    client = TestClient(app)
+    res = client.post("/api/ai/committee", json=data)
+    assert res.status_code == 200
+    payload = res.json()
+    assert set(("decision", "analyst_verdicts", "session_id")).issubset(payload.keys())
+    assert payload["decision"]["verdict"] in ("BUY", "SELL", "HOLD")
+    assert "reasons" in payload["decision"]
+    assert "risk_vetoed" in payload["decision"]
+    assert "overall_confidence" in payload["decision"]
+    assert "timestamp" in payload["decision"]
+    assert len(payload["analyst_verdicts"]) == 6
+    roles = {v["analyst_role"] for v in payload["analyst_verdicts"]}
+    assert "RISK_EXECUTION" in roles
+    assert len(roles) == 6
+    assert payload["session_id"] is not None
+
+    hist = client.get("/api/ai/committee/history?limit=5")
+    assert hist.status_code == 200
+    rows = hist.json()
+    assert isinstance(rows, list) and len(rows) >= 1
+    newest = rows[0]
+    assert "symbol" in newest and "analyst_verdicts" in newest and "verdict" in newest
+    assert isinstance(newest["analyst_verdicts"], list)
+
+    db = SessionLocal()
+    try:
+        assert db.query(CommitteeSession).filter(CommitteeSession.symbol == "TEST_API_CMT").count() >= 1
+        assert db.query(CommitteeAnalystVerdict).count() >= 6
+    finally:
+        db.close()
+
+
+def test_committee_gate_approves_matching_side():
+    """BUY with committee approval (qualified signal + valid bracket) surfaces as BUY."""
+    from backend.ai.committee_service import committee_gate, clear_committee_gate_cache
+    clear_committee_gate_cache()
+
+    buy_quote = {
+        "symbol": "TEST_GATE1",
+        "action": "BUY",
+        "signal": "BUY",
+        "price": 100.0,
+        "change_percentage": 1.0,
+        "change": 1.0,
+        "entry_price": 100.0,
+        "stop_loss": 98.0,
+        "target": 104.0,
+        "risk_reward": 2.0,
+        "strategy": "MockStrat",
+        "confidence": 0.85,
+        "reason": "Mock bullish setup",
+        "indicators": {"rsi": 60, "ema20": 103.0, "ema50": 101.0, "vwap": 102.0, "atr": 1.0, "adx": 26},
+        "patterns": [],
+        "confluence_score": 2,
+        "market_tide": "NEUTRAL",
+        "macro_trend": "NEUTRAL",
+    }
+    approved = committee_gate.gate_quote_action(buy_quote, symbol="TEST_GATE1")
+    assert approved.get("gate", {}).get("approved") is True
+    assert approved["action"] == "BUY"
+    assert approved["signal"] == "BUY"
+    assert approved["committee"]["verdict"] == "BUY"
+    assert approved["committee"]["risk_vetoed"] is False
+
+
+def test_committee_gate_blocks_unapproved_side():
+    """SELL cannot surface when the committee (via risk veto) refuses that side."""
+    from backend.ai.committee_service import committee_gate, clear_committee_gate_cache
+    clear_committee_gate_cache()
+
+    sell_quote = {
+        "symbol": "TEST_GATE1",
+        "action": "SELL",
+        "signal": "SELL",
+        "price": 100.0,
+        "change_percentage": -1.0,
+        "change": -1.0,
+        "entry_price": 100.0,
+        # Invalid SELL bracket (SL below entry) -> deterministic risk veto.
+        "stop_loss": 98.0,
+        "target": 104.0,
+        "risk_reward": 2.0,
+        "strategy": "MockStrat",
+        "confidence": 0.85,
+        "reason": "Mock bearish setup",
+        "indicators": {"rsi": 60, "ema20": 103.0, "ema50": 101.0, "vwap": 102.0, "atr": 1.0, "adx": 26},
+        "patterns": [],
+        "confluence_score": 2,
+        "market_tide": "NEUTRAL",
+        "macro_trend": "NEUTRAL",
+    }
+    blocked = committee_gate.gate_quote_action(sell_quote, symbol="TEST_GATE1")
+    assert blocked.get("gate", {}).get("approved") is False
+    assert blocked["action"] == "WAIT"
+    assert blocked["signal"] == "HOLD"
+    assert blocked["confidence"] <= 0.45
+    assert blocked["committee"]["risk_vetoed"] is True
+    assert any("RISK VETO" in r for r in blocked["committee"]["reasons"])
+
+
+def test_signal_without_committee_approval_never_actionable():
+    """No actionable BUY/SELL surfaces unless the committee approved that exact side."""
+    from backend.ai.committee_service import committee_gate, clear_committee_gate_cache
+    clear_committee_gate_cache()
+
+    quote = {
+        "symbol": "TEST_GATE2",
+        "action": "SELL",
+        "signal": "SELL",
+        "price": 100.0,
+        "change_percentage": -0.8,
+        "change": -0.8,
+        "entry_price": 100.0,
+        "stop_loss": 99.0,
+        "target": 95.0,
+        "risk_reward": 5.0,
+        "strategy": "MockStrat",
+        "confidence": 0.85,
+        "reason": "Mock bearish setup",
+        "indicators": {"rsi": 55, "ema20": 100.0, "ema50": 100.0, "vwap": 100.0, "atr": 1.0, "adx": 22},
+        "patterns": [],
+        "confluence_score": 1,
+        "market_tide": "NEUTRAL",
+        "macro_trend": "NEUTRAL",
+    }
+    gated = committee_gate.gate_quote_action(quote, symbol="TEST_GATE2")
+    if gated.get("gate", {}).get("approved") is True:
+        assert gated["action"] == "SELL"
+        assert gated["signal"] == "SELL"
+        assert gated["committee"]["verdict"] == "SELL"
+    else:
+        assert gated["action"] == "WAIT"
+        assert gated["signal"] == "HOLD"
+        assert gated["committee"]["risk_vetoed"] is not True or any(
+            "RISK VETO" in r for r in gated["committee"]["reasons"]
+        )
