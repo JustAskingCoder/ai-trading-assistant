@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { AIAnalysis } from '../../types';
-import { Sparkles, CheckCircle, AlertOctagon, Zap, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { AIAnalysis, CommitteeDecision } from '../../types';
+import { Sparkles, CheckCircle, AlertOctagon, Zap, CheckCircle2, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { api } from '../../services/api';
+import { committeeApproved, committeeDowngraded, committeeHoldReasons } from '../../utils/committee';
 
 interface TradeFeedback {
   type: 'success' | 'rejected';
@@ -12,6 +13,7 @@ interface Props {
   analysis: AIAnalysis | null;
   loading: boolean;
   symbol?: string;
+  committee?: CommitteeDecision | null;
   onDirectOrder?: (order: {
     symbol: string;
     side: string;
@@ -26,6 +28,7 @@ export const AIAnalysisCard: React.FC<Props> = ({
   analysis,
   loading,
   symbol = 'RELIANCE',
+  committee,
   onDirectOrder
 }) => {
   const [executing, setExecuting] = useState(false);
@@ -56,7 +59,14 @@ export const AIAnalysisCard: React.FC<Props> = ({
 
   const isBuy = analysis.signal === 'BUY';
   const isSell = analysis.signal === 'SELL';
-  const isActionable = isBuy || isSell;
+  const rawSide = analysis.signal === 'BUY' || analysis.signal === 'SELL' ? (analysis.signal as 'BUY' | 'SELL') : null;
+  const gatedHold = rawSide ? committeeDowngraded(committee, rawSide) : false;
+  const committeeApprovedSide = rawSide ? committeeApproved(committee, rawSide) : true;
+  const committeeReasons = committeeHoldReasons(
+    committee,
+    'Committee sign-off not available. Run the research desk to approve the side.'
+  );
+  const isActionable = (isBuy || isSell) && !gatedHold && committeeApprovedSide;
 
   // Midpoint entry price from AI entry zone
   const entryPrice = analysis.entry_zone
@@ -122,12 +132,12 @@ export const AIAnalysisCard: React.FC<Props> = ({
   };
 
   return (
-    <div className={`rounded-xl border ${isBuy ? 'border-emerald-500/30' : isSell ? 'border-rose-500/30' : 'border-dark-600'} bg-dark-800 p-5 shadow-lg flex flex-col justify-between`}>
+    <div className={`rounded-xl border ${gatedHold ? 'border-amber-500/30' : isBuy ? 'border-emerald-500/30' : isSell ? 'border-rose-500/30' : 'border-dark-600'} bg-dark-800 p-5 shadow-lg flex flex-col justify-between`}>
       <div>
         <div className="flex items-center justify-between border-b border-dark-700 pb-3">
           <div className="flex flex-wrap items-center gap-2">
-            <Sparkles className={`h-4 w-4 ${isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-indigo-400'}`} />
-            <h3 className={`font-bold text-base tracking-tight ${isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-white'}`}>{analysis.setup}</h3>
+            <Sparkles className={`h-4 w-4 ${gatedHold ? 'text-amber-400' : isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-indigo-400'}`} />
+            <h3 className={`font-bold text-base tracking-tight ${gatedHold ? 'text-amber-400' : isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-white'}`}>{analysis.setup}</h3>
             <span className="flex items-center gap-1 rounded bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 border border-amber-500/20">
               ⏱ 10m Max Window
             </span>
@@ -137,6 +147,11 @@ export const AIAnalysisCard: React.FC<Props> = ({
             <span className="rounded bg-indigo-500/10 px-2 py-0.5 text-[11px] font-medium text-indigo-300 border border-indigo-500/20">
               🛡 Structural SL
             </span>
+            {gatedHold && (
+              <span className="flex items-center gap-1 rounded bg-amber-500/15 px-2 py-0.5 text-[11px] font-bold text-amber-300 border border-amber-500/30">
+                <ShieldAlert className="h-3 w-3" /> COMMITTEE: HOLD
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-400">
@@ -144,22 +159,26 @@ export const AIAnalysisCard: React.FC<Props> = ({
             </span>
             <span
               className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${
-                isBuy
+                gatedHold
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                  : isBuy
                   ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
                   : isSell
                   ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                   : 'bg-slate-500/20 text-slate-300 border border-slate-500/30'
               }`}
             >
-              AI {analysis.signal}
+              {gatedHold ? 'HOLD' : `AI ${analysis.signal}`}
             </span>
           </div>
         </div>
 
-        {/* Actionable AI Headline */}
+        {/* AI Actionable Headline (committee-gated) */}
         <div
           className={`mt-3 rounded-lg px-4 py-3 border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 shadow-inner ${
-            isBuy
+            gatedHold
+              ? 'bg-amber-500/10 border-amber-500/30'
+              : isBuy
               ? 'bg-emerald-500/10 border-emerald-500/30'
               : isSell
               ? 'bg-rose-500/10 border-rose-500/30'
@@ -168,23 +187,33 @@ export const AIAnalysisCard: React.FC<Props> = ({
         >
           <div>
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-              AI Actionable Setup
+              {gatedHold ? 'Committee Verdict (Research Desk)' : 'AI Actionable Setup'}
             </div>
             <div
               className={`text-lg sm:text-xl font-black tracking-tight ${
-                isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-slate-300'
+                gatedHold ? 'text-amber-400' : isBuy ? 'text-emerald-400' : isSell ? 'text-rose-400' : 'text-slate-300'
               }`}
             >
-              {isBuy
+              {gatedHold
+                ? `HOLD ${symbol} — COMMITTEE DID NOT APPROVE ${rawSide}`
+                : isBuy
                 ? `RECOMMENDED ACTION: BUY ${qty} SHARE (Scalp Target: +₹${targetProfitRupees} · 10m Window)`
                 : isSell
                 ? `RECOMMENDED ACTION: SELL ${qty} SHARE (Short Scalp: +₹${targetProfitRupees} · 10m Window)`
                 : `AI RECOMMENDATION: HOLD / NEUTRAL`}
             </div>
+            {gatedHold && (
+              <div className="mt-1 text-xs text-slate-300">
+                <span className="font-semibold text-amber-300">Why HOLD:</span>{' '}
+                {committeeReasons.join(' ')}
+              </div>
+            )}
           </div>
-          <div className="text-xs font-semibold text-slate-300 sm:text-right">
-            <span className="text-slate-400">Target Entry:</span> ₹{entryPrice.toFixed(2)}
-          </div>
+          {!gatedHold && (
+            <div className="text-xs font-semibold text-slate-300 sm:text-right">
+              <span className="text-slate-400">Target Entry:</span> ₹{entryPrice.toFixed(2)}
+            </div>
+          )}
         </div>
 
         {/* AI Metric Grid */}
@@ -277,8 +306,18 @@ export const AIAnalysisCard: React.FC<Props> = ({
       </div>
 
       <div>
-        {/* 1-click Execute AI Setup Button */}
-        {isActionable && (
+        {/* 1-click Execute AI Setup Button (gated to HOLD until committee approves) */}
+        {gatedHold ? (
+          <div className="mt-4 pt-3 border-t border-dark-700/80">
+            <div className="flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs font-semibold text-amber-200">
+              <ShieldAlert className="h-4 w-4 shrink-0 text-amber-400" />
+              <span>
+                <strong>HOLD — not approved by committee.</strong> No {rawSide} order may be placed until
+                the research desk signs off ({committeeReasons.join(' ')}).
+              </span>
+            </div>
+          </div>
+        ) : isActionable && (
           <div className="mt-4 pt-3 border-t border-dark-700/80">
             <button
               onClick={handleExecuteAISetup}

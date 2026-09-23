@@ -308,3 +308,34 @@ export interface ZerodhaStatus {
   broker: string;
   data_source: 'ZERODHA' | 'YFINANCE';
 }
+
+export type CommitteeSide = 'BUY' | 'SELL' | 'HOLD';
+
+export interface AnalystVerdict {
+  role: string;
+  side: CommitteeSide;
+  confidence: number;
+  top_factor: string;
+  risk_flags: string[];
+  rationale: string;
+}
+
+export interface CommitteeDecision {
+  symbol?: string;
+  verdict: CommitteeSide;
+  overall_confidence: number;
+  num_agree: number;
+  risk_vetoed: boolean;
+  per_analyst: AnalystVerdict[];
+  reasons: string[];
+}
+
+export interface CommitteeRequest {
+  symbol: string;
+  price?: number;
+  timeframe?: string;
+  indicators?: Record<string, any>;
+  patterns?: Pattern[];
+  strategy_signal?: string;
+  strategy_reason?: string;
+}
